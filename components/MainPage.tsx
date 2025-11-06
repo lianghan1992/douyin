@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../services/api';
 import { TaskDetails, TaskStatus, StoredTask } from '../types';
-import { UploadIcon, SpinnerIcon, DownloadIcon, RefreshIcon, CheckCircleIcon, XCircleIcon, ClockIcon, VideoIcon } from './icons';
+import { UploadIcon, SpinnerIcon, DownloadIcon, RefreshIcon, CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon } from './icons';
 
 interface MainPageProps {
   token: string;
@@ -17,6 +17,7 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
     const [max_duration, setMaxDuration] = useState(60);
     const [slowdown_factor, setSlowdownFactor] = useState<number | null>(null);
     const [effect, setEffect] = useState('vflip');
+    const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, fileType: 'source' | 'material') => {
         if (e.target.files && e.target.files[0]) {
@@ -50,21 +51,21 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
         }
     };
 
-    const FileInput: React.FC<{id: string, label: string, file: File | null, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void}> = ({id, label, file, onChange}) => (
-      <div className="w-full">
-        <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
-        <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-          <div className="space-y-1 text-center">
-            <VideoIcon className="mx-auto h-12 w-12 text-gray-400"/>
-            <div className="flex text-sm text-gray-600">
-              <label htmlFor={id} className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                <span>上传文件</span>
-                <input id={id} name={id} type="file" accept="video/*" className="sr-only" onChange={onChange} disabled={isUploading}/>
-              </label>
-              <p className="pl-1">或拖拽到此处</p>
-            </div>
-            <p className="text-xs text-gray-500">{file ? file.name : 'MP4, MOV, etc.'}</p>
-          </div>
+    const CompactFileInput: React.FC<{
+      id: string;
+      label: string;
+      file: File | null;
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+      isUploading: boolean;
+    }> = ({ id, label, file, onChange, isUploading }) => (
+      <div>
+        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        <div className="mt-1 flex items-center space-x-3">
+          <label htmlFor={id} className="cursor-pointer whitespace-nowrap bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50" aria-disabled={isUploading}>
+            <span>选择文件</span>
+            <input id={id} name={id} type="file" accept="video/*" className="sr-only" onChange={onChange} disabled={isUploading} />
+          </label>
+          <span className="text-sm text-gray-500 truncate" title={file?.name}>{file ? file.name : '未选择文件'}</span>
         </div>
       </div>
     );
@@ -73,33 +74,43 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
         <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">创建新任务</h2>
             <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="flex flex-col md:flex-row gap-6">
-                    <FileInput id="source-video" label="源视频" file={sourceVideo} onChange={e => handleFileChange(e, 'source')} />
-                    <FileInput id="material-video" label="素材视频" file={materialVideo} onChange={e => handleFileChange(e, 'material')} />
+                <div className="space-y-4">
+                    <CompactFileInput id="source-video" label="源视频" file={sourceVideo} onChange={e => handleFileChange(e, 'source')} isUploading={isUploading} />
+                    <CompactFileInput id="material-video" label="素材视频" file={materialVideo} onChange={e => handleFileChange(e, 'material')} isUploading={isUploading} />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <label htmlFor="min_duration" className="block text-sm font-medium text-gray-700">最小持续时间 (秒)</label>
-                        <input type="number" name="min_duration" id="min_duration" value={min_duration} onChange={e => setMinDuration(parseInt(e.target.value))} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
-                    </div>
-                    <div>
-                        <label htmlFor="max_duration" className="block text-sm font-medium text-gray-700">最大持续时间 (秒)</label>
-                        <input type="number" name="max_duration" id="max_duration" value={max_duration} onChange={e => setMaxDuration(parseInt(e.target.value))} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
-                    </div>
-                    <div>
-                        <label htmlFor="slowdown_factor" className="block text-sm font-medium text-gray-700">减速因子 (可选)</label>
-                        <input type="number" step="0.1" name="slowdown_factor" id="slowdown_factor" value={slowdown_factor ?? ''} onChange={e => setSlowdownFactor(e.target.value ? parseFloat(e.target.value) : null)} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
-                    </div>
-                    <div>
-                        <label htmlFor="effect" className="block text-sm font-medium text-gray-700">效果</label>
-                        <select id="effect" name="effect" value={effect} onChange={e => setEffect(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
-                            <option value="vflip">垂直翻转</option>
-                            <option value="hflip">水平翻转</option>
-                            <option value="grayscale">灰度</option>
-                            <option value="rotate_90">旋转90度</option>
-                        </select>
-                    </div>
+                
+                <div className="border-t border-gray-200 pt-4">
+                    <button type="button" onClick={() => setAdvancedOptionsOpen(!advancedOptionsOpen)} className="flex justify-between items-center w-full text-left text-sm font-medium text-gray-700 hover:text-gray-900 focus:outline-none">
+                        <span>高级处理选项</span>
+                        <ChevronDownIcon className={`h-5 w-5 transform transition-transform text-gray-500 ${advancedOptionsOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {advancedOptionsOpen && (
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label htmlFor="min_duration" className="block text-sm font-medium text-gray-700">最小持续时间 (秒)</label>
+                                <input type="number" name="min_duration" id="min_duration" value={min_duration} onChange={e => setMinDuration(parseInt(e.target.value))} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                            </div>
+                            <div>
+                                <label htmlFor="max_duration" className="block text-sm font-medium text-gray-700">最大持续时间 (秒)</label>
+                                <input type="number" name="max_duration" id="max_duration" value={max_duration} onChange={e => setMaxDuration(parseInt(e.target.value))} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                            </div>
+                            <div>
+                                <label htmlFor="slowdown_factor" className="block text-sm font-medium text-gray-700">减速因子 (可选)</label>
+                                <input type="number" step="0.1" name="slowdown_factor" id="slowdown_factor" value={slowdown_factor ?? ''} onChange={e => setSlowdownFactor(e.target.value ? parseFloat(e.target.value) : null)} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                            </div>
+                            <div>
+                                <label htmlFor="effect" className="block text-sm font-medium text-gray-700">效果</label>
+                                <select id="effect" name="effect" value={effect} onChange={e => setEffect(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                                    <option value="vflip">垂直翻转</option>
+                                    <option value="hflip">水平翻转</option>
+                                    <option value="grayscale">灰度</option>
+                                    <option value="rotate_90">旋转90度</option>
+                                </select>
+                            </div>
+                        </div>
+                    )}
                 </div>
+
                 <div>
                     <button type="submit" disabled={isUploading || !sourceVideo || !materialVideo} className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300 disabled:cursor-not-allowed">
                         {isUploading ? <SpinnerIcon className="animate-spin h-5 w-5 mr-3" /> : <UploadIcon className="h-5 w-5 mr-2"/>}

@@ -1,13 +1,15 @@
 import { TaskDetails, TaskStatus } from '../types';
 
 export const api = {
-  login: async (username: string, password: string): Promise<{ access_token: string }> => {
+  login: async (username: string, password: string, rememberMe: boolean): Promise<{ access_token: string }> => {
     try {
       const params = new URLSearchParams();
       params.append('username', username);
       params.append('password', password);
 
-      const response = await fetch('/token', {
+      const url = rememberMe ? '/token?remember_me=true' : '/token';
+
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',

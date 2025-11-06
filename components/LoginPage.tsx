@@ -9,6 +9,7 @@ interface LoginPageProps {
 const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -18,15 +19,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     setError('');
 
     try {
-        const response = await api.login(username, password);
+        const response = await api.login(username, password, rememberMe);
         if (response.access_token) {
-          // Always remember the user for 30 days
-          const credentials = {
-            username,
-            password,
-            saveUntil: new Date().getTime() + 30 * 24 * 60 * 60 * 1000, // 30 days
-          };
-          localStorage.setItem('credentials', JSON.stringify(credentials));
+          if (rememberMe) {
+            localStorage.setItem('authToken', response.access_token);
+          } else {
+            sessionStorage.setItem('authToken', response.access_token);
+          }
           onLogin(response.access_token);
         }
     } catch (err: any) {
@@ -80,8 +79,23 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               密码
             </label>
           </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <input
+                id="remember-me"
+                name="remember-me"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              />
+              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900">
+                记住我
+              </label>
+            </div>
+          </div>
           {error && <p className="text-sm text-red-600 text-center">{error}</p>}
-          <div className="pt-6">
+          <div className="pt-2">
             <button
               type="submit"
               disabled={isLoading}
