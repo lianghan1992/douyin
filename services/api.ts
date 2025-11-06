@@ -54,10 +54,21 @@ export const api = {
       });
 
       if (!startResponse.ok) {
-        throw new Error(`无法启动上传: ${file.name}`);
+        const errorText = await startResponse.text().catch(() => `HTTP ${startResponse.status}: ${startResponse.statusText}`);
+        throw new Error(`无法启动上传 (${file.name}): ${errorText}`);
       }
 
-      const { upload_id } = await startResponse.json();
+      let upload_id;
+      try {
+        const data = await startResponse.json();
+        upload_id = data.upload_id;
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          throw new Error('任务创建失败：服务器在启动上传时返回了无效的响应（可能是HTML页面），而不是预期的JSON数据。这可能是由于会话过期或服务器配置错误。请尝试重新登录。');
+        }
+        throw error; // Re-throw other parsing errors
+      }
+
 
       let chunkNumber = 0;
       for (let start = 0; start < file.size; start += CHUNK_SIZE) {
@@ -76,7 +87,8 @@ export const api = {
         });
 
         if (!chunkResponse.ok) {
-          throw new Error(`块上传失败: ${file.name}, 块 #${chunkNumber}`);
+          const errorText = await chunkResponse.text().catch(() => `HTTP ${chunkResponse.status}: ${chunkResponse.statusText}`);
+          throw new Error(`块上传失败: ${file.name}, 块 #${chunkNumber}. 详情: ${errorText}`);
         }
         chunkNumber++;
       }
@@ -102,7 +114,8 @@ export const api = {
       });
 
       if (!completeResponse.ok) {
-        throw new Error(`无法完成上传: ${file.name}`);
+        const errorText = await completeResponse.text().catch(() => `HTTP ${completeResponse.status}: ${completeResponse.statusText}`);
+        throw new Error(`无法完成上传: ${file.name}. 详情: ${errorText}`);
       }
     };
 
