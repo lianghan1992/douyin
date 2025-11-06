@@ -23,7 +23,7 @@ export const api = {
     } catch (error) {
       console.error('登录请求时发生错误:', error);
       if (error instanceof SyntaxError) {
-          throw new Error('从服务器收到意外的响应。这通常是服务器配置问题，请检查代理设置。');
+          throw new Error('登录失败：服务器返回了意外的HTML页面，而不是预期的JSON数据。这是一个严重的服务器配置错误。请联系您的系统管理员，并请他们检查Apache的代理模块(mod_proxy, mod_proxy_http)、防火墙规则以及SELinux/AppArmor安全策略，这些都可能阻止Apache连接到后端服务。');
       }
       // Re-throw other errors, or the custom error from the !response.ok block
       throw error;
