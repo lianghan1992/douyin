@@ -13,6 +13,10 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
     const [materialVideo, setMaterialVideo] = useState<File | null>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [message, setMessage] = useState('');
+    const [min_duration, setMinDuration] = useState(45);
+    const [max_duration, setMaxDuration] = useState(60);
+    const [slowdown_factor, setSlowdownFactor] = useState<number | null>(null);
+    const [effect, setEffect] = useState('vflip');
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, fileType: 'source' | 'material') => {
         if (e.target.files && e.target.files[0]) {
@@ -30,7 +34,7 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
         setIsUploading(true);
         setMessage('');
         try {
-            const response = await api.createTask(sourceVideo, materialVideo, token);
+            const response = await api.createTask(sourceVideo, materialVideo, token, min_duration, max_duration, slowdown_factor, effect);
             if (response?.task_id) {
                 setMessage(`任务创建成功！任务ID: ${response.task_id}`);
                 onTaskCreated({ id: response.task_id, createdAt: new Date().toISOString() });
@@ -72,6 +76,29 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
                 <div className="flex flex-col md:flex-row gap-6">
                     <FileInput id="source-video" label="源视频" file={sourceVideo} onChange={e => handleFileChange(e, 'source')} />
                     <FileInput id="material-video" label="素材视频" file={materialVideo} onChange={e => handleFileChange(e, 'material')} />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label htmlFor="min_duration" className="block text-sm font-medium text-gray-700">最小持续时间 (秒)</label>
+                        <input type="number" name="min_duration" id="min_duration" value={min_duration} onChange={e => setMinDuration(parseInt(e.target.value))} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                    </div>
+                    <div>
+                        <label htmlFor="max_duration" className="block text-sm font-medium text-gray-700">最大持续时间 (秒)</label>
+                        <input type="number" name="max_duration" id="max_duration" value={max_duration} onChange={e => setMaxDuration(parseInt(e.target.value))} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                    </div>
+                    <div>
+                        <label htmlFor="slowdown_factor" className="block text-sm font-medium text-gray-700">减速因子 (可选)</label>
+                        <input type="number" step="0.1" name="slowdown_factor" id="slowdown_factor" value={slowdown_factor ?? ''} onChange={e => setSlowdownFactor(e.target.value ? parseFloat(e.target.value) : null)} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+                    </div>
+                    <div>
+                        <label htmlFor="effect" className="block text-sm font-medium text-gray-700">效果</label>
+                        <select id="effect" name="effect" value={effect} onChange={e => setEffect(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                            <option value="vflip">垂直翻转</option>
+                            <option value="hflip">水平翻转</option>
+                            <option value="grayscale">灰度</option>
+                            <option value="rotate_90">旋转90度</option>
+                        </select>
+                    </div>
                 </div>
                 <div>
                     <button type="submit" disabled={isUploading || !sourceVideo || !materialVideo} className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300 disabled:cursor-not-allowed">
