@@ -66,7 +66,7 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
     );
 
     return (
-        <div className="bg-white p-8 rounded-xl shadow-lg">
+        <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">创建新任务</h2>
             <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="flex flex-col md:flex-row gap-6">
@@ -154,7 +154,7 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
 
     const formatDate = (dateString?: string) => {
         if (!dateString) return 'N/A';
-        return new Date(dateString).toLocaleString('zh-CN');
+        return new Date(dateString).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
     };
 
     const handleDownload = async (taskId: string) => {
@@ -188,59 +188,91 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
         </th>
     );
 
+    const renderTaskActions = (task: TaskDetails) => (
+        <>
+            {task.status === TaskStatus.COMPLETED && (
+                <button onClick={() => handleDownload(task.id)} disabled={downloading === task.id} className="text-blue-600 hover:text-blue-900 flex items-center disabled:opacity-50 disabled:cursor-wait">
+                    {downloading === task.id ? <SpinnerIcon className="h-5 w-5 mr-1 animate-spin" /> : <DownloadIcon className="h-5 w-5 mr-1" />}
+                    {downloading === task.id ? '下载中' : '下载'}
+                </button>
+            )}
+            {task.status !== TaskStatus.COMPLETED && task.status !== TaskStatus.FAILED && (
+                <button onClick={() => refreshTask(task.id)} className="text-gray-600 hover:text-gray-900 flex items-center">
+                    <RefreshIcon className="h-5 w-5 mr-1" />刷新
+                </button>
+            )}
+        </>
+    );
+
     return (
-        <div className="bg-white p-8 rounded-xl shadow-lg mt-8">
+        <div className="bg-white p-4 sm:p-8 rounded-xl shadow-lg mt-8">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">任务列表</h2>
-            <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                        <tr>
-                            <SortableHeader sortKey="id" label="任务ID" />
-                            <SortableHeader sortKey="status" label="状态" />
-                            <SortableHeader sortKey="createdAt" label="创建时间" />
-                            <SortableHeader sortKey="processing_time_seconds" label="处理耗时" />
-                            <SortableHeader sortKey="final_video_duration_seconds" label="视频时长" />
-                            <SortableHeader sortKey="final_video_size_bytes" label="文件大小" />
-                            <SortableHeader sortKey="end_time" label="完成时间" />
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                        {paginatedTasks.map((task) => (
-                            <tr key={task.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-700">{task.id}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{getStatusIndicator(task.status)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.createdAt)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.processing_time_seconds)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.final_video_duration_seconds)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatSize(task.final_video_size_bytes)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.end_time)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                    {task.status === TaskStatus.COMPLETED && (
-                                        <button onClick={() => handleDownload(task.id)} disabled={downloading === task.id} className="text-blue-600 hover:text-blue-900 flex items-center disabled:opacity-50 disabled:cursor-wait">
-                                            {downloading === task.id ? <SpinnerIcon className="h-5 w-5 mr-1 animate-spin" /> : <DownloadIcon className="h-5 w-5 mr-1" />}
-                                            {downloading === task.id ? '下载中' : '下载'}
-                                        </button>
-                                    )}
-                                    {task.status !== TaskStatus.COMPLETED && task.status !== TaskStatus.FAILED && (
-                                        <button onClick={() => refreshTask(task.id)} className="text-gray-600 hover:text-gray-900 flex items-center">
-                                            <RefreshIcon className="h-5 w-5 mr-1" />刷新
-                                        </button>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-                 {tasks.length === 0 && <p className="text-center py-4 text-gray-500">暂无任务</p>}
+
+             {/* Mobile Card View */}
+            <div className="space-y-4 md:hidden">
+                {paginatedTasks.length > 0 ? paginatedTasks.map((task) => (
+                    <div key={task.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <div className="flex justify-between items-start">
+                            <p className="font-mono text-sm text-gray-800 break-all pr-2">{task.id}</p>
+                            <div className="flex-shrink-0 text-sm">{getStatusIndicator(task.status)}</div>
+                        </div>
+                        <div className="mt-4 border-t border-gray-200 pt-4 text-sm">
+                            <dl className="space-y-2">
+                                <div className="flex justify-between"><dt className="text-gray-500">创建时间</dt><dd className="text-gray-800 text-right">{formatDate(task.createdAt)}</dd></div>
+                                <div className="flex justify-between"><dt className="text-gray-500">完成时间</dt><dd className="text-gray-800 text-right">{formatDate(task.end_time)}</dd></div>
+                                <div className="flex justify-between"><dt className="text-gray-500">处理耗时</dt><dd className="text-gray-800">{formatDuration(task.processing_time_seconds)}</dd></div>
+                                <div className="flex justify-between"><dt className="text-gray-500">视频时长</dt><dd className="text-gray-800">{formatDuration(task.final_video_duration_seconds)}</dd></div>
+                                <div className="flex justify-between"><dt className="text-gray-500">文件大小</dt><dd className="text-gray-800">{formatSize(task.final_video_size_bytes)}</dd></div>
+                            </dl>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end space-x-4">
+                            {renderTaskActions(task)}
+                        </div>
+                    </div>
+                )) : <p className="text-center py-4 text-gray-500">暂无任务</p>}
             </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
+                 {tasks.length > 0 ? (
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                <SortableHeader sortKey="id" label="任务ID" />
+                                <SortableHeader sortKey="status" label="状态" />
+                                <SortableHeader sortKey="createdAt" label="创建时间" />
+                                <SortableHeader sortKey="processing_time_seconds" label="处理耗时" />
+                                <SortableHeader sortKey="final_video_duration_seconds" label="视频时长" />
+                                <SortableHeader sortKey="final_video_size_bytes" label="文件大小" />
+                                <SortableHeader sortKey="end_time" label="完成时间" />
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {paginatedTasks.map((task) => (
+                                <tr key={task.id}>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-700">{task.id}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{getStatusIndicator(task.status)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.createdAt)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.processing_time_seconds)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.final_video_duration_seconds)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatSize(task.final_video_size_bytes)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.end_time)}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-4">{renderTaskActions(task)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                 ) : <p className="text-center py-4 text-gray-500">暂无任务</p>}
+            </div>
+            
             {totalPages > 1 && (
-                <div className="py-4 flex items-center justify-between">
-                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50">
+                <div className="py-4 flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-0">
+                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50">
                         上一页
                     </button>
                     <span className="text-sm text-gray-700">第 {currentPage} 页 / 共 {totalPages} 页</span>
-                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50">
+                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="w-full sm:w-auto px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50">
                         下一页
                     </button>
                 </div>
@@ -305,7 +337,7 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
     <div className="min-h-screen bg-slate-100">
       <header className="bg-white shadow-md">
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-gray-900">视频处理面板</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">视频处理面板</h1>
           <button
             onClick={onLogout}
             className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
@@ -314,7 +346,7 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
           </button>
         </div>
       </header>
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         <UploadSection token={token} onTaskCreated={handleTaskCreated} />
         {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl relative my-6" role="alert">{error}</div>}
         <TaskListSection tasks={tasks} token={token} refreshTask={refreshSpecificTask} />

@@ -37,8 +37,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center">
-      <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-xl shadow-lg">
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-md p-6 sm:p-8 space-y-8 bg-white rounded-xl shadow-lg">
         <div className="text-center">
           <h1 className="text-4xl font-bold text-gray-800">视频处理工具</h1>
           <p className="mt-2 text-gray-500">欢迎回来，请登录您的账户</p>
