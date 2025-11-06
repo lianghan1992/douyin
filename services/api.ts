@@ -1,20 +1,13 @@
 import { TaskDetails, TaskStatus } from '../types';
 
-const BASE_URL = ''; // Relative path because of proxy
-
 export const api = {
   login: async (username: string, password: string): Promise<{ access_token: string }> => {
-    // Per requirement: allow empty login without validation for now.
-    if (username.trim() === '' && password.trim() === '') {
-      return Promise.resolve({ access_token: 'fake-token-for-dev' });
-    }
-
     try {
       const params = new URLSearchParams();
       params.append('username', username);
       params.append('password', password);
 
-      const response = await fetch(`${BASE_URL}/token`, {
+      const response = await fetch('/token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -47,7 +40,7 @@ export const api = {
       formData.append('source_video', sourceVideo);
       formData.append('material_video', materialVideo);
 
-      const response = await fetch(`${BASE_URL}/process-videos/`, {
+      const response = await fetch('/process-videos/', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -69,7 +62,7 @@ export const api = {
 
   getTaskStatus: async (taskId: string, token: string): Promise<Partial<TaskDetails>> => {
     try {
-      const response = await fetch(`${BASE_URL}/tasks/${taskId}`, {
+      const response = await fetch(`/tasks/${taskId}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -88,7 +81,7 @@ export const api = {
   },
 
   downloadVideo: async (taskId: string, token: string): Promise<Blob> => {
-    const response = await fetch(`${BASE_URL}/download-video/${taskId}`, {
+    const response = await fetch(`/download-video/${taskId}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
