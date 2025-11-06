@@ -39,11 +39,19 @@ export const api = {
     min_duration: number,
     max_duration: number,
     slowdown_factor: number | null,
-    effect: string
+    effect: string,
+    onProgress?: (progress: { percentage: number; file: string }) => void
   ): Promise<{ task_id: string }> => {
     const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 
+    const totalSourceChunks = Math.ceil(sourceVideo.size / CHUNK_SIZE);
+    const totalMaterialChunks = Math.ceil(materialVideo.size / CHUNK_SIZE);
+    const totalChunks = totalSourceChunks + totalMaterialChunks;
+    let chunksUploaded = 0;
+
     const uploadFileInChunks = async (file: File, fileType: string, taskId: string) => {
+      onProgress?.({ percentage: (chunksUploaded / totalChunks) * 100, file: file.name });
+
       const startResponse = await fetch("/upload/start", {
         method: "POST",
         headers: {
@@ -69,7 +77,6 @@ export const api = {
         throw error; // Re-throw other parsing errors
       }
 
-
       let chunkNumber = 0;
       for (let start = 0; start < file.size; start += CHUNK_SIZE) {
         const chunk = file.slice(start, start + CHUNK_SIZE);
@@ -90,6 +97,8 @@ export const api = {
           const errorText = await chunkResponse.text().catch(() => `HTTP ${chunkResponse.status}: ${chunkResponse.statusText}`);
           throw new Error(`块上传失败: ${file.name}, 块 #${chunkNumber}. 详情: ${errorText}`);
         }
+        chunksUploaded++;
+        onProgress?.({ percentage: (chunksUploaded / totalChunks) * 100, file: file.name });
         chunkNumber++;
       }
 
@@ -140,12 +149,10 @@ export const api = {
       }
       const data = await response.json();
       
-      // Handle the case where the API returns an object like { statistics: {}, tasks: [] }
       if (data && Array.isArray(data.tasks)) {
         return data.tasks;
       }
 
-      // Fallback for when the API returns a direct array
       if (Array.isArray(data)) {
         return data;
       }
@@ -178,7 +185,7 @@ export const api = {
     }
   },
 
-  downloadVideo: async (taskId: string, token: string): Promise<Blob> => {
+  downloadVideo: async (taskId: string, token: string, onProgress?: (percentage: number) => void): Promise<Blob> => {
     const response = await fetch(`/download-video/${taskId}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -188,6 +195,30 @@ export const api = {
     if (!response.ok) {
       throw new Error(`视频下载失败: ${response.statusText}`);
     }
-    return response.blob();
+
+    if (!response.body) {
+        throw new Error("响应体为空，无法下载文件。");
+    }
+
+    const contentLength = response.headers.get('Content-Length');
+    const totalSize = contentLength ? parseInt(contentLength, 10) : 0;
+    let receivedLength = 0;
+    const chunks: Uint8Array[] = [];
+    const reader = response.body.getReader();
+
+    while(true) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
+        }
+        chunks.push(value);
+        receivedLength += value.length;
+        if (totalSize > 0) {
+            const percentage = (receivedLength / totalSize) * 100;
+            onProgress?.(percentage);
+        }
+    }
+
+    return new Blob(chunks);
   },
 };

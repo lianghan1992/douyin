@@ -8,16 +8,27 @@ interface MainPageProps {
   onLogout: () => void;
 }
 
+const ProgressBar: React.FC<{ percentage: number }> = ({ percentage }) => (
+    <div className="w-full bg-gray-200 rounded-full h-2.5">
+        <div 
+            className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300 ease-out" 
+            style={{ width: `${percentage}%` }}
+        ></div>
+    </div>
+);
+
 const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask) => void; }> = ({ token, onTaskCreated }) => {
     const [sourceVideo, setSourceVideo] = useState<File | null>(null);
     const [materialVideo, setMaterialVideo] = useState<File | null>(null);
-    const [isUploading, setIsUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState<{ percentage: number; file: string } | null>(null);
     const [message, setMessage] = useState('');
     const [min_duration, setMinDuration] = useState(45);
     const [max_duration, setMaxDuration] = useState(60);
     const [slowdown_factor, setSlowdownFactor] = useState<number | null>(null);
     const [effect, setEffect] = useState('vflip');
     const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
+
+    const isUploading = uploadProgress !== null;
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, fileType: 'source' | 'material') => {
         if (e.target.files && e.target.files[0]) {
@@ -32,10 +43,14 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
             setMessage('请选择源视频和素材视频。');
             return;
         }
-        setIsUploading(true);
+        setUploadProgress({ percentage: 0, file: sourceVideo.name });
         setMessage('');
         try {
-            const response = await api.createTask(sourceVideo, materialVideo, token, min_duration, max_duration, slowdown_factor, effect);
+            const response = await api.createTask(
+                sourceVideo, materialVideo, token, 
+                min_duration, max_duration, slowdown_factor, effect,
+                (progress) => setUploadProgress(progress)
+            );
             if (response?.task_id) {
                 setMessage(`任务创建成功！任务ID: ${response.task_id}`);
                 onTaskCreated({ id: response.task_id, createdAt: new Date().toISOString() });
@@ -46,7 +61,7 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
         } catch (error: any) {
             setMessage(`任务创建失败: ${error.message || '请稍后重试。'}`);
         } finally {
-            setIsUploading(false);
+            setUploadProgress(null);
         }
     };
 
@@ -107,19 +122,19 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
                         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="min_duration" className="block text-sm font-medium text-gray-700">最小持续时间 (秒)</label>
-                                <input type="number" name="min_duration" id="min_duration" value={min_duration} onChange={e => setMinDuration(parseInt(e.target.value))} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
+                                <input type="number" name="min_duration" id="min_duration" value={min_duration} onChange={e => setMinDuration(parseInt(e.target.value))} disabled={isUploading} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
                             </div>
                             <div>
                                 <label htmlFor="max_duration" className="block text-sm font-medium text-gray-700">最大持续时间 (秒)</label>
-                                <input type="number" name="max_duration" id="max_duration" value={max_duration} onChange={e => setMaxDuration(parseInt(e.target.value))} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
+                                <input type="number" name="max_duration" id="max_duration" value={max_duration} onChange={e => setMaxDuration(parseInt(e.target.value))} disabled={isUploading} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
                             </div>
                             <div>
                                 <label htmlFor="slowdown_factor" className="block text-sm font-medium text-gray-700">减速因子 (可选)</label>
-                                <input type="number" step="0.1" name="slowdown_factor" id="slowdown_factor" value={slowdown_factor ?? ''} onChange={e => setSlowdownFactor(e.target.value ? parseFloat(e.target.value) : null)} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
+                                <input type="number" step="0.1" name="slowdown_factor" id="slowdown_factor" value={slowdown_factor ?? ''} onChange={e => setSlowdownFactor(e.target.value ? parseFloat(e.target.value) : null)} disabled={isUploading} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
                             </div>
                             <div>
                                 <label htmlFor="effect" className="block text-sm font-medium text-gray-700">效果</label>
-                                <select id="effect" name="effect" value={effect} onChange={e => setEffect(e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                                <select id="effect" name="effect" value={effect} onChange={e => setEffect(e.target.value)} disabled={isUploading} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
                                     <option value="vflip">垂直翻转</option>
                                     <option value="hflip">水平翻转</option>
                                     <option value="grayscale">灰度</option>
@@ -136,6 +151,17 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
                         {isUploading ? '上传处理中...' : '开始处理'}
                     </button>
                 </div>
+
+                {uploadProgress && (
+                    <div className="space-y-2 pt-2">
+                        <div className="flex justify-between text-sm font-medium text-gray-700">
+                            <span className="truncate max-w-xs">正在上传: {uploadProgress.file}</span>
+                            <span>{Math.round(uploadProgress.percentage)}%</span>
+                        </div>
+                        <ProgressBar percentage={uploadProgress.percentage} />
+                    </div>
+                )}
+                
                 {message && <p className={`mt-4 text-sm text-center ${message.includes('失败') ? 'text-red-600' : 'text-green-600'}`}>{message}</p>}
             </form>
         </div>
@@ -145,7 +171,7 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
 const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTask: (taskId: string) => void;}> = ({ tasks, token, refreshTask }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const [sortConfig, setSortConfig] = useState<{ key: keyof TaskDetails; direction: 'asc' | 'desc' } | null>({ key: 'createdAt', direction: 'desc' });
-    const [downloading, setDownloading] = useState<string | null>(null); // Track downloading task ID
+    const [downloadProgress, setDownloadProgress] = useState<{ [taskId: string]: number }>({});
     const tasksPerPage = 10;
 
     const formatDuration = (totalSeconds?: number): string => {
@@ -215,9 +241,11 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
     };
 
     const handleDownload = async (taskId: string) => {
-        setDownloading(taskId);
+        setDownloadProgress(prev => ({ ...prev, [taskId]: 0 }));
         try {
-            const blob = await api.downloadVideo(taskId, token);
+            const blob = await api.downloadVideo(taskId, token, (percentage) => {
+                setDownloadProgress(prev => ({ ...prev, [taskId]: percentage }));
+            });
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
@@ -230,7 +258,11 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
             console.error('下载失败:', error);
             alert('视频下载失败，请查看控制台获取更多信息。');
         } finally {
-            setDownloading(null);
+            setDownloadProgress(prev => {
+                const newState = { ...prev };
+                delete newState[taskId];
+                return newState;
+            });
         }
     };
 
@@ -245,21 +277,31 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
         </th>
     );
 
-    const renderTaskActions = (task: TaskDetails) => (
-        <>
-            {task.status === TaskStatus.COMPLETED && (
-                <button onClick={() => handleDownload(task.id)} disabled={downloading === task.id} className="text-indigo-600 hover:text-indigo-900 flex items-center disabled:opacity-50 disabled:cursor-wait">
-                    {downloading === task.id ? <SpinnerIcon className="h-5 w-5 mr-1 animate-spin" /> : <DownloadIcon className="h-5 w-5 mr-1" />}
-                    {downloading === task.id ? '下载中' : '下载'}
-                </button>
-            )}
-            {task.status !== TaskStatus.COMPLETED && task.status !== TaskStatus.FAILED && (
-                <button onClick={() => refreshTask(task.id)} className="text-gray-600 hover:text-gray-900 flex items-center">
-                    <RefreshIcon className="h-5 w-5 mr-1" />刷新
-                </button>
-            )}
-        </>
-    );
+    const renderTaskActions = (task: TaskDetails) => {
+        const isDownloading = downloadProgress[task.id] !== undefined;
+
+        return (
+            <>
+                {task.status === TaskStatus.COMPLETED && (
+                    isDownloading ? (
+                        <div className="w-24">
+                            <ProgressBar percentage={downloadProgress[task.id]} />
+                        </div>
+                    ) : (
+                        <button onClick={() => handleDownload(task.id)} className="text-indigo-600 hover:text-indigo-900 flex items-center">
+                            <DownloadIcon className="h-5 w-5 mr-1" />
+                            下载
+                        </button>
+                    )
+                )}
+                {task.status !== TaskStatus.COMPLETED && task.status !== TaskStatus.FAILED && (
+                    <button onClick={() => refreshTask(task.id)} className="text-gray-600 hover:text-gray-900 flex items-center">
+                        <RefreshIcon className="h-5 w-5 mr-1" />刷新
+                    </button>
+                )}
+            </>
+        );
+    }
 
     return (
         <div className="bg-white p-4 sm:p-8 rounded-xl shadow-lg mt-8">
