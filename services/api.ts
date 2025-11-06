@@ -72,11 +72,19 @@ export const api = {
         throw new Error(`获取任务列表失败: ${response.statusText}`);
       }
       const data = await response.json();
-      if (!Array.isArray(data)) {
-        console.error("API /tasks/ did not return an array:", data);
-        throw new Error("服务器返回的数据格式不正确。");
+      
+      // Handle the case where the API returns an object like { statistics: {}, tasks: [] }
+      if (data && Array.isArray(data.tasks)) {
+        return data.tasks;
       }
-      return data;
+
+      // Fallback for when the API returns a direct array
+      if (Array.isArray(data)) {
+        return data;
+      }
+
+      console.error("API /tasks/ did not return a valid task list format:", data);
+      throw new Error("服务器返回的数据格式不正确。");
     } catch (error) {
       console.error('获取任务列表时发生错误:', error);
       throw error;
