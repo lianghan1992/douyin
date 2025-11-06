@@ -60,7 +60,25 @@ export const api = {
     }
   },
 
-  getTaskStatus: async (taskId: string, token: string): Promise<Partial<TaskDetails>> => {
+  getTasks: async (token: string): Promise<TaskDetails[]> => {
+    try {
+      const response = await fetch('/tasks/', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`获取任务列表失败: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('获取任务列表时发生错误:', error);
+      throw error;
+    }
+  },
+
+  getTaskStatus: async (taskId: string, token: string): Promise<TaskDetails> => {
     try {
       const response = await fetch(`/tasks/${taskId}`, {
         headers: {
@@ -69,14 +87,14 @@ export const api = {
       });
 
       if (!response.ok) {
-        console.error(`获取任务 ${taskId} 状态失败:`, response.statusText);
-        return { status: TaskStatus.FAILED, error: `HTTP error: ${response.statusText}` };
+        const errorText = await response.text();
+        console.error(`获取任务 ${taskId} 状态失败:`, response.statusText, errorText);
+        throw new Error(`获取任务状态失败: ${response.statusText}`);
       }
-      const data = await response.json();
-      return { status: data.status, ...data };
+      return await response.json();
     } catch (error) {
       console.error(`获取任务 ${taskId} 状态时发生错误:`, error);
-      return { status: TaskStatus.FAILED, error: '网络请求失败' };
+      throw error;
     }
   },
 

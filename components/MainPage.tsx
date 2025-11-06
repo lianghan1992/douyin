@@ -36,6 +36,8 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
                 onTaskCreated({ id: response.task_id, createdAt: new Date().toISOString() });
                 setSourceVideo(null);
                 setMaterialVideo(null);
+                 // Clear message after 3 seconds
+                setTimeout(() => setMessage(''), 3000);
             }
         } catch (error: any) {
             setMessage(`任务创建失败: ${error.message || '请稍后重试。'}`);
@@ -195,7 +197,7 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
                                             {downloading === task.id ? '下载中' : '下载'}
                                         </button>
                                     )}
-                                    {task.status === TaskStatus.RUNNING && (
+                                    {task.status !== TaskStatus.COMPLETED && task.status !== TaskStatus.FAILED && (
                                         <button onClick={() => refreshTask(task.id)} className="text-gray-600 hover:text-gray-900 flex items-center">
                                             <RefreshIcon className="h-5 w-5 mr-1" />刷新
                                         </button>
@@ -225,71 +227,59 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
 
 const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
   const [tasks, setTasks] = useState<TaskDetails[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const fetchTaskDetails = useCallback(async (storedTask: StoredTask): Promise<TaskDetails> => {
-    const details = await api.getTaskStatus(storedTask.id, token);
-    return {
-        id: storedTask.id,
-        createdAt: storedTask.createdAt,
-        status: TaskStatus.PENDING,
-        ...details,
-    } as TaskDetails;
+  const fetchAllTasks = useCallback(async () => {
+    try {
+      const serverTasks = await api.getTasks(token);
+      setTasks(serverTasks);
+      setError(null);
+    } catch (err: any) {
+      console.error("无法从服务器获取任务:", err);
+      setError("无法加载任务列表。请检查您的网络连接并稍后重试。");
+    }
   }, [token]);
 
-  const loadAndRefreshTasks = useCallback(async () => {
-    const storedTasksJSON = localStorage.getItem('video_tasks');
-    const storedTasks: StoredTask[] = storedTasksJSON ? JSON.parse(storedTasksJSON) : [];
-    
-    if (storedTasks.length > 0) {
-        const promises = storedTasks.map(fetchTaskDetails);
-        const results = await Promise.allSettled(promises);
-        const newTasks: TaskDetails[] = results
-            .filter(r => r.status === 'fulfilled')
-            .map(r => (r as PromiseFulfilledResult<TaskDetails>).value);
-        setTasks(newTasks);
-    }
-  }, [fetchTaskDetails]);
-
   const refreshSpecificTask = useCallback(async (taskId: string) => {
-    const storedTasksJSON = localStorage.getItem('video_tasks');
-    const storedTasks: StoredTask[] = storedTasksJSON ? JSON.parse(storedTasksJSON) : [];
-    const storedTask = storedTasks.find(t => t.id === taskId);
-    if(storedTask) {
-        const updatedDetails = await fetchTaskDetails(storedTask);
-        setTasks(currentTasks => currentTasks.map(t => t.id === taskId ? updatedDetails : t));
+    try {
+        const updatedTask = await api.getTaskStatus(taskId, token);
+        setTasks(currentTasks => currentTasks.map(t => t.id === taskId ? updatedTask : t));
+    } catch (error) {
+        console.error(`刷新任务失败 ${taskId}:`, error);
+        // Optionally show a temporary error message to the user for this specific task
     }
-  }, [fetchTaskDetails]);
+  }, [token]);
 
   useEffect(() => {
-    loadAndRefreshTasks();
-    const interval = setInterval(() => {
-        setTasks(currentTasks => {
-            currentTasks.forEach(task => {
-                if (task.status === TaskStatus.RUNNING || task.status === TaskStatus.PENDING) {
-                    refreshSpecificTask(task.id);
-                }
-            });
-            return currentTasks;
-        });
+    fetchAllTasks();
+  }, [fetchAllTasks]);
+
+  useEffect(() => {
+    const tasksToPoll = tasks.filter(
+      (task) => task.status === TaskStatus.RUNNING || task.status === TaskStatus.PENDING
+    );
+
+    if (tasksToPoll.length === 0) {
+      return; 
+    }
+
+    const intervalId = setInterval(() => {
+      tasksToPoll.forEach((task) => {
+        refreshSpecificTask(task.id);
+      });
     }, 10000); // Poll every 10 seconds
 
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => clearInterval(intervalId);
+  }, [tasks, refreshSpecificTask]);
 
   const handleTaskCreated = (newTask: StoredTask) => {
-      const storedTasksJSON = localStorage.getItem('video_tasks');
-      const storedTasks: StoredTask[] = storedTasksJSON ? JSON.parse(storedTasksJSON) : [];
-      const updatedStoredTasks = [newTask, ...storedTasks];
-      localStorage.setItem('video_tasks', JSON.stringify(updatedStoredTasks));
-      
       const newTaskDetails: TaskDetails = {
           id: newTask.id,
           createdAt: newTask.createdAt,
           status: TaskStatus.PENDING,
       };
       setTasks(currentTasks => [newTaskDetails, ...currentTasks]);
-      setTimeout(() => refreshSpecificTask(newTask.id), 1000); // Refresh after 1 second
+      setTimeout(() => fetchAllTasks(), 2000); // Refresh the whole list to get server-side details
   };
 
   return (
@@ -307,6 +297,7 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
       </header>
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <UploadSection token={token} onTaskCreated={handleTaskCreated} />
+        {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl relative my-6" role="alert">{error}</div>}
         <TaskListSection tasks={tasks} token={token} refreshTask={refreshSpecificTask} />
       </main>
     </div>
