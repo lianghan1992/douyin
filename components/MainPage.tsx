@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../services/api';
 import { TaskDetails, TaskStatus, StoredTask } from '../types';
-import { UploadIcon, SpinnerIcon, DownloadIcon, RefreshIcon, CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, VideoIcon, XIcon } from './icons';
+import { UploadIcon, SpinnerIcon, DownloadIcon, RefreshIcon, CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, VideoIcon, XIcon, TrashIcon } from './icons';
 
 interface MainPageProps {
   token: string;
@@ -168,7 +168,12 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
     );
 };
 
-const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTask: (taskId: string) => void;}> = ({ tasks, token, refreshTask }) => {
+const TaskListSection: React.FC<{ 
+    tasks: TaskDetails[]; 
+    token: string; 
+    refreshTask: (taskId: string) => void;
+    onTaskDeleted: (taskId: string) => void;
+}> = ({ tasks, token, refreshTask, onTaskDeleted }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const [sortConfig, setSortConfig] = useState<{ key: keyof TaskDetails; direction: 'asc' | 'desc' } | null>({ key: 'createdAt', direction: 'desc' });
     const [downloadProgress, setDownloadProgress] = useState<{ [taskId: string]: number }>({});
@@ -266,6 +271,18 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
         }
     };
 
+    const handleDelete = async (taskId: string) => {
+        if (window.confirm(`您确定要删除任务 ${taskId} 吗？此操作不可逆，将删除所有相关文件。`)) {
+            try {
+                await api.deleteTask(taskId, token);
+                onTaskDeleted(taskId);
+            } catch (error: any) {
+                console.error('删除任务失败:', error);
+                alert(`删除任务失败: ${error.message}`);
+            }
+        }
+    };
+
     const SortableHeader: React.FC<{sortKey: keyof TaskDetails, label: string}> = ({sortKey, label}) => (
         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" onClick={() => requestSort(sortKey)}>
             <div className="flex items-center">
@@ -299,6 +316,10 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
                         <RefreshIcon className="h-5 w-5 mr-1" />刷新
                     </button>
                 )}
+                 <button onClick={() => handleDelete(task.id)} className="text-red-600 hover:text-red-900 flex items-center">
+                    <TrashIcon className="h-5 w-5 mr-1" />
+                    删除
+                </button>
             </>
         );
     }
@@ -432,6 +453,10 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
       fetchAllTasks();
   };
 
+  const handleTaskDeleted = (taskId: string) => {
+    setTasks(currentTasks => currentTasks.filter(task => task.id !== taskId));
+  };
+
   return (
     <div className="min-h-screen bg-slate-100">
       <header className="bg-white shadow-md">
@@ -448,7 +473,7 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         <UploadSection token={token} onTaskCreated={handleTaskCreated} />
         {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl relative my-6" role="alert">{error}</div>}
-        <TaskListSection tasks={tasks} token={token} refreshTask={refreshSpecificTask} />
+        <TaskListSection tasks={tasks} token={token} refreshTask={refreshSpecificTask} onTaskDeleted={handleTaskDeleted} />
       </main>
     </div>
   );

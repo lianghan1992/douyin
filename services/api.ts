@@ -185,6 +185,21 @@ export const api = {
     }
   },
 
+  deleteTask: async (taskId: string, token: string): Promise<{ message: string }> => {
+    const response = await fetch(`/tasks/${taskId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+      throw new Error(errorData.detail || `删除任务失败: ${response.statusText}`);
+    }
+    return response.json();
+  },
+
   downloadVideo: async (taskId: string, token: string, onProgress?: (percentage: number) => void): Promise<Blob> => {
     const response = await fetch(`/download-video/${taskId}`, {
       headers: {
