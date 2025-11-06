@@ -8,10 +8,20 @@ interface MainPageProps {
   onLogout: () => void;
 }
 
+const formatSpeed = (bytesPerSecond: number): string => {
+    if (!isFinite(bytesPerSecond) || bytesPerSecond < 0) return '0 B/s';
+    if (bytesPerSecond < 1024) return `${bytesPerSecond.toFixed(0)} B/s`;
+    const k = 1024;
+    const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+    const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
+    return `${parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+};
+
+
 const ProgressBar: React.FC<{ percentage: number }> = ({ percentage }) => (
-    <div className="w-full bg-gray-200 rounded-full h-2.5">
+    <div className="w-full bg-gray-200 rounded-full h-2">
         <div 
-            className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300 ease-out" 
+            className="bg-indigo-600 h-2 rounded-full transition-all duration-300 ease-out" 
             style={{ width: `${percentage}%` }}
         ></div>
     </div>
@@ -21,6 +31,7 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
     const [sourceVideo, setSourceVideo] = useState<File | null>(null);
     const [materialVideo, setMaterialVideo] = useState<File | null>(null);
     const [uploadProgress, setUploadProgress] = useState<{ percentage: number; file: string } | null>(null);
+    const [uploadStats, setUploadStats] = useState({ speed: 0, lastTime: 0, lastLoaded: 0 });
     const [message, setMessage] = useState('');
     const [min_duration, setMinDuration] = useState(45);
     const [max_duration, setMaxDuration] = useState(60);
@@ -29,13 +40,32 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
     const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
 
     const isUploading = uploadProgress !== null;
-
+    
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, fileType: 'source' | 'material') => {
         if (e.target.files && e.target.files[0]) {
             if (fileType === 'source') setSourceVideo(e.target.files[0]);
             else setMaterialVideo(e.target.files[0]);
         }
     };
+
+    const handleUploadProgress = (progress: { loaded: number, total: number, file: string }) => {
+        const percentage = progress.total > 0 ? (progress.loaded / progress.total) * 100 : 0;
+        setUploadProgress({ percentage, file: progress.file });
+
+        const now = Date.now();
+        const timeDiff = (now - uploadStats.lastTime) / 1000; // in seconds
+        
+        if (timeDiff > 0.5 || progress.loaded === progress.total) { // Update speed every 0.5s or on completion
+            const bytesDiff = progress.loaded - uploadStats.lastLoaded;
+            const speed = bytesDiff / timeDiff;
+            setUploadStats({
+                speed: speed > 0 ? speed : 0,
+                lastTime: now,
+                lastLoaded: progress.loaded,
+            });
+        }
+    };
+
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -44,12 +74,13 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
             return;
         }
         setUploadProgress({ percentage: 0, file: sourceVideo.name });
+        setUploadStats({ speed: 0, lastTime: Date.now(), lastLoaded: 0 });
         setMessage('');
         try {
             const response = await api.createTask(
                 sourceVideo, materialVideo, token, 
                 min_duration, max_duration, slowdown_factor, effect,
-                (progress) => setUploadProgress(progress)
+                handleUploadProgress
             );
             if (response?.task_id) {
                 setMessage(`任务创建成功！任务ID: ${response.task_id}`);
@@ -155,8 +186,11 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
                 {uploadProgress && (
                     <div className="space-y-2 pt-2">
                         <div className="flex justify-between text-sm font-medium text-gray-700">
-                            <span className="truncate max-w-xs">正在上传: {uploadProgress.file}</span>
-                            <span>{Math.round(uploadProgress.percentage)}%</span>
+                            <span className="truncate max-w-[50%]">正在上传: {uploadProgress.file}</span>
+                            <div className="flex items-center gap-x-3">
+                                <span>{formatSpeed(uploadStats.speed)}</span>
+                                <span>{Math.round(uploadProgress.percentage)}%</span>
+                            </div>
                         </div>
                         <ProgressBar percentage={uploadProgress.percentage} />
                     </div>
@@ -177,6 +211,7 @@ const TaskListSection: React.FC<{
     const [currentPage, setCurrentPage] = useState(1);
     const [sortConfig, setSortConfig] = useState<{ key: keyof TaskDetails; direction: 'asc' | 'desc' } | null>({ key: 'createdAt', direction: 'desc' });
     const [downloadProgress, setDownloadProgress] = useState<{ [taskId: string]: number }>({});
+    const [downloadStats, setDownloadStats] = useState<{ [taskId: string]: { speed: number, lastTime: number, lastLoaded: number } }>({});
     const tasksPerPage = 10;
 
     const formatDuration = (totalSeconds?: number): string => {
@@ -247,9 +282,26 @@ const TaskListSection: React.FC<{
 
     const handleDownload = async (taskId: string) => {
         setDownloadProgress(prev => ({ ...prev, [taskId]: 0 }));
+        setDownloadStats(prev => ({ ...prev, [taskId]: { speed: 0, lastTime: Date.now(), lastLoaded: 0 } }));
         try {
-            const blob = await api.downloadVideo(taskId, token, (percentage) => {
+            const blob = await api.downloadVideo(taskId, token, (progress) => {
+                const { loaded, total } = progress;
+                const percentage = total > 0 ? (loaded / total) * 100 : 0;
                 setDownloadProgress(prev => ({ ...prev, [taskId]: percentage }));
+                
+                setDownloadStats(prev => {
+                    const stats = prev[taskId];
+                    if (!stats) return prev; // Guard against race condition
+                    const now = Date.now();
+                    const timeDiff = (now - stats.lastTime) / 1000;
+            
+                    if (timeDiff > 0.5 || loaded === total) {
+                        const bytesDiff = loaded - stats.lastLoaded;
+                        const speed = bytesDiff / timeDiff;
+                        return { ...prev, [taskId]: { speed: speed > 0 ? speed : 0, lastTime: now, lastLoaded: loaded } };
+                    }
+                    return prev;
+                });
             });
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -264,6 +316,11 @@ const TaskListSection: React.FC<{
             alert('视频下载失败，请查看控制台获取更多信息。');
         } finally {
             setDownloadProgress(prev => {
+                const newState = { ...prev };
+                delete newState[taskId];
+                return newState;
+            });
+             setDownloadStats(prev => {
                 const newState = { ...prev };
                 delete newState[taskId];
                 return newState;
@@ -284,11 +341,11 @@ const TaskListSection: React.FC<{
     };
 
     const SortableHeader: React.FC<{sortKey: keyof TaskDetails, label: string}> = ({sortKey, label}) => (
-        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" onClick={() => requestSort(sortKey)}>
+        <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" onClick={() => requestSort(sortKey)}>
             <div className="flex items-center">
                 {label}
                 {sortConfig?.key === sortKey && (
-                    <span className="ml-1">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
+                    <span className="ml-1 text-gray-400">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
                 )}
             </div>
         </th>
@@ -298,29 +355,31 @@ const TaskListSection: React.FC<{
         const isDownloading = downloadProgress[task.id] !== undefined;
 
         return (
-            <>
+             <div className="flex items-center justify-end gap-2">
                 {task.status === TaskStatus.COMPLETED && (
                     isDownloading ? (
-                        <div className="w-24">
+                        <div className="w-32 text-center">
+                           <div className="flex justify-between text-xs font-medium text-gray-600 px-1">
+                               <span>{downloadStats[task.id] ? formatSpeed(downloadStats[task.id].speed) : '...'}</span>
+                               <span>{Math.round(downloadProgress[task.id])}%</span>
+                            </div>
                             <ProgressBar percentage={downloadProgress[task.id]} />
                         </div>
                     ) : (
-                        <button onClick={() => handleDownload(task.id)} className="text-indigo-600 hover:text-indigo-900 flex items-center">
-                            <DownloadIcon className="h-5 w-5 mr-1" />
-                            下载
+                        <button onClick={() => handleDownload(task.id)} title="下载" className="p-2 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors">
+                            <DownloadIcon className="h-5 w-5" />
                         </button>
                     )
                 )}
                 {task.status !== TaskStatus.COMPLETED && task.status !== TaskStatus.FAILED && (
-                    <button onClick={() => refreshTask(task.id)} className="text-gray-600 hover:text-gray-900 flex items-center">
-                        <RefreshIcon className="h-5 w-5 mr-1" />刷新
+                     <button onClick={() => refreshTask(task.id)} title="刷新状态" className="p-2 text-gray-600 rounded-full hover:bg-gray-100 transition-colors">
+                        <RefreshIcon className="h-5 w-5" />
                     </button>
                 )}
-                 <button onClick={() => handleDelete(task.id)} className="text-red-600 hover:text-red-900 flex items-center">
-                    <TrashIcon className="h-5 w-5 mr-1" />
-                    删除
+                 <button onClick={() => handleDelete(task.id)} title="删除任务" className="p-2 text-red-600 rounded-full hover:bg-red-100 transition-colors">
+                    <TrashIcon className="h-5 w-5" />
                 </button>
-            </>
+            </div>
         );
     }
 
@@ -328,8 +387,7 @@ const TaskListSection: React.FC<{
         <div className="bg-white p-4 sm:p-8 rounded-xl shadow-lg mt-8">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">任务列表</h2>
 
-             {/* Mobile Card View */}
-            <div className="space-y-4 md:hidden">
+            <div className="md:hidden space-y-4">
                 {paginatedTasks.length > 0 ? paginatedTasks.map((task) => (
                     <div key={task.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                         <div className="flex justify-between items-start">
@@ -339,20 +397,18 @@ const TaskListSection: React.FC<{
                         <div className="mt-4 border-t border-gray-200 pt-4 text-sm">
                             <dl className="space-y-2">
                                 <div className="flex justify-between"><dt className="text-gray-500">创建时间</dt><dd className="text-gray-800 text-right">{formatDate(task.createdAt)}</dd></div>
-                                <div className="flex justify-between"><dt className="text-gray-500">完成时间</dt><dd className="text-gray-800 text-right">{formatDate(task.end_time)}</dd></div>
                                 <div className="flex justify-between"><dt className="text-gray-500">处理耗时</dt><dd className="text-gray-800">{formatDuration(task.processing_time_seconds)}</dd></div>
                                 <div className="flex justify-between"><dt className="text-gray-500">视频时长</dt><dd className="text-gray-800">{formatDuration(task.final_video_duration_seconds)}</dd></div>
                                 <div className="flex justify-between"><dt className="text-gray-500">文件大小</dt><dd className="text-gray-800">{formatSize(task.final_video_size_bytes)}</dd></div>
                             </dl>
                         </div>
-                        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end space-x-4">
+                        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end">
                             {renderTaskActions(task)}
                         </div>
                     </div>
                 )) : <p className="text-center py-4 text-gray-500">暂无任务</p>}
             </div>
 
-            {/* Desktop Table View */}
             <div className="hidden md:block overflow-x-auto">
                  {tasks.length > 0 ? (
                     <table className="min-w-full divide-y divide-gray-200">
@@ -364,21 +420,21 @@ const TaskListSection: React.FC<{
                                 <SortableHeader sortKey="processing_time_seconds" label="处理耗时" />
                                 <SortableHeader sortKey="final_video_duration_seconds" label="视频时长" />
                                 <SortableHeader sortKey="final_video_size_bytes" label="文件大小" />
-                                <SortableHeader sortKey="end_time" label="完成时间" />
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                                <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {paginatedTasks.map((task) => (
-                                <tr key={task.id}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-700">{task.id}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{getStatusIndicator(task.status)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.createdAt)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.processing_time_seconds)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.final_video_duration_seconds)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatSize(task.final_video_size_bytes)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.end_time)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-4">{renderTaskActions(task)}</td>
+                                <tr key={task.id} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-mono text-gray-700">{task.id}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">{getStatusIndicator(task.status)}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.createdAt)}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.processing_time_seconds)}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.final_video_duration_seconds)}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{formatSize(task.final_video_size_bytes)}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        {renderTaskActions(task)}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -423,7 +479,6 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
         setTasks(currentTasks => currentTasks.map(t => t.id === taskId ? updatedTask : t));
     } catch (error) {
         console.error(`刷新任务失败 ${taskId}:`, error);
-        // Optionally show a temporary error message to the user for this specific task
     }
   }, [token]);
 
@@ -449,7 +504,7 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
     return () => clearInterval(intervalId);
   }, [tasks, refreshSpecificTask]);
 
-  const handleTaskCreated = (newTask: StoredTask) => {
+  const handleTaskCreated = () => {
       fetchAllTasks();
   };
 

@@ -1,4 +1,4 @@
-import { TaskDetails, TaskStatus } from '../types';
+import { TaskDetails } from '../types';
 
 export const api = {
   login: async (username: string, password: string, rememberMe: boolean): Promise<{ access_token: string }> => {
@@ -40,17 +40,14 @@ export const api = {
     max_duration: number,
     slowdown_factor: number | null,
     effect: string,
-    onProgress?: (progress: { percentage: number; file: string }) => void
+    onProgress?: (progress: { loaded: number; total: number; file: string }) => void
   ): Promise<{ task_id: string }> => {
     const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
-
-    const totalSourceChunks = Math.ceil(sourceVideo.size / CHUNK_SIZE);
-    const totalMaterialChunks = Math.ceil(materialVideo.size / CHUNK_SIZE);
-    const totalChunks = totalSourceChunks + totalMaterialChunks;
-    let chunksUploaded = 0;
+    const totalSize = sourceVideo.size + materialVideo.size;
+    let totalBytesUploaded = 0;
 
     const uploadFileInChunks = async (file: File, fileType: string, taskId: string) => {
-      onProgress?.({ percentage: (chunksUploaded / totalChunks) * 100, file: file.name });
+      onProgress?.({ loaded: totalBytesUploaded, total: totalSize, file: file.name });
 
       const startResponse = await fetch("/upload/start", {
         method: "POST",
@@ -97,8 +94,8 @@ export const api = {
           const errorText = await chunkResponse.text().catch(() => `HTTP ${chunkResponse.status}: ${chunkResponse.statusText}`);
           throw new Error(`块上传失败: ${file.name}, 块 #${chunkNumber}. 详情: ${errorText}`);
         }
-        chunksUploaded++;
-        onProgress?.({ percentage: (chunksUploaded / totalChunks) * 100, file: file.name });
+        totalBytesUploaded += chunk.size;
+        onProgress?.({ loaded: totalBytesUploaded, total: totalSize, file: file.name });
         chunkNumber++;
       }
 
@@ -131,7 +128,11 @@ export const api = {
     const taskId = `${new Date().toISOString().replace(/[-:.]/g, "").slice(0, 14)}_${Math.random().toString(36).substring(2, 6)}`;
 
     await uploadFileInChunks(sourceVideo, "source", taskId);
+    // Ensure progress hits 100% for the first file before starting the second if sizes are weird
+    totalBytesUploaded = sourceVideo.size;
     await uploadFileInChunks(materialVideo, "material", taskId);
+    
+    onProgress?.({ loaded: totalSize, total: totalSize, file: materialVideo.name });
 
     return { task_id: taskId };
   },
@@ -200,7 +201,7 @@ export const api = {
     return response.json();
   },
 
-  downloadVideo: async (taskId: string, token: string, onProgress?: (percentage: number) => void): Promise<Blob> => {
+  downloadVideo: async (taskId: string, token: string, onProgress?: (progress: { loaded: number, total: number }) => void): Promise<Blob> => {
     const response = await fetch(`/download-video/${taskId}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -229,8 +230,7 @@ export const api = {
         chunks.push(value);
         receivedLength += value.length;
         if (totalSize > 0) {
-            const percentage = (receivedLength / totalSize) * 100;
-            onProgress?.(percentage);
+            onProgress?.({ loaded: receivedLength, total: totalSize });
         }
     }
 
