@@ -91,6 +91,25 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
     const [downloading, setDownloading] = useState<string | null>(null); // Track downloading task ID
     const tasksPerPage = 10;
 
+    const formatDuration = (totalSeconds?: number): string => {
+        if (typeof totalSeconds !== 'number' || totalSeconds < 0) return 'N/A';
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = Math.floor(totalSeconds % 60);
+        return [hours, minutes, seconds]
+            .map(v => v.toString().padStart(2, '0'))
+            .join(':');
+    };
+
+    const formatSize = (bytes?: number): string => {
+        if (typeof bytes !== 'number' || bytes < 0) return 'N/A';
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+    };
+
     const sortedTasks = useMemo(() => {
         let sortableTasks = [...tasks];
         if (sortConfig !== null) {
@@ -179,6 +198,9 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
                             <SortableHeader sortKey="id" label="任务ID" />
                             <SortableHeader sortKey="status" label="状态" />
                             <SortableHeader sortKey="createdAt" label="创建时间" />
+                            <SortableHeader sortKey="processing_time_seconds" label="处理耗时" />
+                            <SortableHeader sortKey="final_video_duration_seconds" label="视频时长" />
+                            <SortableHeader sortKey="final_video_size_bytes" label="文件大小" />
                             <SortableHeader sortKey="end_time" label="完成时间" />
                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
                         </tr>
@@ -189,6 +211,9 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-700">{task.id}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{getStatusIndicator(task.status)}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.createdAt)}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.processing_time_seconds)}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.final_video_duration_seconds)}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatSize(task.final_video_size_bytes)}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.end_time)}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     {task.status === TaskStatus.COMPLETED && (
