@@ -71,7 +71,12 @@ export const api = {
       if (!response.ok) {
         throw new Error(`获取任务列表失败: ${response.statusText}`);
       }
-      return await response.json();
+      const data = await response.json();
+      if (!Array.isArray(data)) {
+        console.error("API /tasks/ did not return an array:", data);
+        throw new Error("服务器返回的数据格式不正确。");
+      }
+      return data;
     } catch (error) {
       console.error('获取任务列表时发生错误:', error);
       throw error;

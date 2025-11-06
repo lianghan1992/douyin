@@ -273,13 +273,7 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
   }, [tasks, refreshSpecificTask]);
 
   const handleTaskCreated = (newTask: StoredTask) => {
-      const newTaskDetails: TaskDetails = {
-          id: newTask.id,
-          createdAt: newTask.createdAt,
-          status: TaskStatus.PENDING,
-      };
-      setTasks(currentTasks => [newTaskDetails, ...currentTasks]);
-      setTimeout(() => fetchAllTasks(), 2000); // Refresh the whole list to get server-side details
+      fetchAllTasks();
   };
 
   return (
