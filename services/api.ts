@@ -1,10 +1,14 @@
-
 import { TaskDetails, TaskStatus } from '../types';
 
 const BASE_URL = ''; // Relative path because of proxy
 
 export const api = {
-  login: async (username: string, password: string): Promise<{ access_token: string } | null> => {
+  login: async (username: string, password: string): Promise<{ access_token: string }> => {
+    // Per requirement: allow empty login without validation for now.
+    if (username.trim() === '' && password.trim() === '') {
+      return Promise.resolve({ access_token: 'fake-token-for-dev' });
+    }
+
     try {
       const params = new URLSearchParams();
       params.append('username', username);
@@ -19,21 +23,17 @@ export const api = {
       });
 
       if (!response.ok) {
-        // Allow empty login for now as per requirement
-        if (username === '' && password === '') {
-          return { access_token: 'fake-token-for-dev' };
-        }
-        console.error('登录失败:', response.statusText);
-        return null;
+        const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+        throw new Error(errorData.detail || '登录失败，请检查您的凭据。');
       }
       return await response.json();
     } catch (error) {
       console.error('登录请求时发生错误:', error);
-      // Allow empty login for now as per requirement
-      if (username === '' && password === '') {
-        return { access_token: 'fake-token-for-dev' };
+      if (error instanceof SyntaxError) {
+          throw new Error('从服务器收到意外的响应。这通常是服务器配置问题，请检查代理设置。');
       }
-      return null;
+      // Re-throw other errors, or the custom error from the !response.ok block
+      throw error;
     }
   },
 
@@ -41,7 +41,7 @@ export const api = {
     sourceVideo: File,
     materialVideo: File,
     token: string
-  ): Promise<{ task_id: string } | null> => {
+  ): Promise<{ task_id: string }> => {
     try {
       const formData = new FormData();
       formData.append('source_video', sourceVideo);
@@ -56,17 +56,18 @@ export const api = {
       });
 
       if (!response.ok) {
-        console.error('创建任务失败:', response.statusText);
-        return null;
+        const errorText = await response.text();
+        console.error('创建任务失败:', response.statusText, errorText);
+        throw new Error(`创建任务失败: ${response.statusText}`);
       }
       return await response.json();
     } catch (error) {
       console.error('创建任务请求时发生错误:', error);
-      return null;
+      throw error;
     }
   },
 
-  getTaskStatus: async (taskId: string, token: string): Promise<Partial<TaskDetails> | null> => {
+  getTaskStatus: async (taskId: string, token: string): Promise<Partial<TaskDetails>> => {
     try {
       const response = await fetch(`${BASE_URL}/tasks/${taskId}`, {
         headers: {
@@ -86,7 +87,16 @@ export const api = {
     }
   },
 
-  getDownloadUrl: (taskId: string, token: string): string => {
-    return `${BASE_URL}/download-video/${taskId}?token=${token}`;
+  downloadVideo: async (taskId: string, token: string): Promise<Blob> => {
+    const response = await fetch(`${BASE_URL}/download-video/${taskId}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`视频下载失败: ${response.statusText}`);
+    }
+    return response.blob();
   },
 };

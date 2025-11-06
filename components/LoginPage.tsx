@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { api } from '../services/api';
 import { SpinnerIcon } from './icons';
@@ -19,22 +18,24 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     setIsLoading(true);
     setError('');
 
-    const response = await api.login(username, password);
-
-    if (response?.access_token) {
-      if (rememberMe) {
-        const credentials = {
-          username,
-          password,
-          saveUntil: new Date().getTime() + 30 * 24 * 60 * 60 * 1000, // 30 days
-        };
-        localStorage.setItem('credentials', JSON.stringify(credentials));
-      }
-      onLogin(response.access_token);
-    } else {
-      setError('登录失败，请检查您的凭据。');
+    try {
+        const response = await api.login(username, password);
+        if (response.access_token) {
+          if (rememberMe) {
+            const credentials = {
+              username,
+              password,
+              saveUntil: new Date().getTime() + 30 * 24 * 60 * 60 * 1000, // 30 days
+            };
+            localStorage.setItem('credentials', JSON.stringify(credentials));
+          }
+          onLogin(response.access_token);
+        }
+    } catch (err: any) {
+        setError(err.message || '发生未知错误，请稍后重试。');
+    } finally {
+        setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (
@@ -81,7 +82,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               密码
             </label>
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-red-600 text-center">{error}</p>}
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <input

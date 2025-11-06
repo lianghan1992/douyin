@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../services/api';
 import { TaskDetails, TaskStatus, StoredTask } from '../types';
@@ -30,15 +29,18 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
         }
         setIsUploading(true);
         setMessage('');
-        const response = await api.createTask(sourceVideo, materialVideo, token);
-        setIsUploading(false);
-        if (response?.task_id) {
-            setMessage(`任务创建成功！任务ID: ${response.task_id}`);
-            onTaskCreated({ id: response.task_id, createdAt: new Date().toISOString() });
-            setSourceVideo(null);
-            setMaterialVideo(null);
-        } else {
-            setMessage('任务创建失败，请稍后重试。');
+        try {
+            const response = await api.createTask(sourceVideo, materialVideo, token);
+            if (response?.task_id) {
+                setMessage(`任务创建成功！任务ID: ${response.task_id}`);
+                onTaskCreated({ id: response.task_id, createdAt: new Date().toISOString() });
+                setSourceVideo(null);
+                setMaterialVideo(null);
+            }
+        } catch (error: any) {
+            setMessage(`任务创建失败: ${error.message || '请稍后重试。'}`);
+        } finally {
+            setIsUploading(false);
         }
     };
 
@@ -84,6 +86,7 @@ const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask)
 const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTask: (taskId: string) => void;}> = ({ tasks, token, refreshTask }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const [sortConfig, setSortConfig] = useState<{ key: keyof TaskDetails; direction: 'asc' | 'desc' } | null>({ key: 'createdAt', direction: 'desc' });
+    const [downloading, setDownloading] = useState<string | null>(null); // Track downloading task ID
     const tasksPerPage = 10;
 
     const sortedTasks = useMemo(() => {
@@ -133,14 +136,24 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
         return new Date(dateString).toLocaleString('zh-CN');
     };
 
-    const handleDownload = (taskId: string) => {
-      const url = api.getDownloadUrl(taskId, token);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${taskId}.mp4`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+    const handleDownload = async (taskId: string) => {
+        setDownloading(taskId);
+        try {
+            const blob = await api.downloadVideo(taskId, token);
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `${taskId}.mp4`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('下载失败:', error);
+            alert('视频下载失败，请查看控制台获取更多信息。');
+        } finally {
+            setDownloading(null);
+        }
     };
 
     const SortableHeader: React.FC<{sortKey: keyof TaskDetails, label: string}> = ({sortKey, label}) => (
@@ -177,8 +190,9 @@ const TaskListSection: React.FC<{ tasks: TaskDetails[]; token: string; refreshTa
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.end_time)}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     {task.status === TaskStatus.COMPLETED && (
-                                        <button onClick={() => handleDownload(task.id)} className="text-blue-600 hover:text-blue-900 flex items-center">
-                                            <DownloadIcon className="h-5 w-5 mr-1" />下载
+                                        <button onClick={() => handleDownload(task.id)} disabled={downloading === task.id} className="text-blue-600 hover:text-blue-900 flex items-center disabled:opacity-50 disabled:cursor-wait">
+                                            {downloading === task.id ? <SpinnerIcon className="h-5 w-5 mr-1 animate-spin" /> : <DownloadIcon className="h-5 w-5 mr-1" />}
+                                            {downloading === task.id ? '下载中' : '下载'}
                                         </button>
                                     )}
                                     {task.status === TaskStatus.RUNNING && (
