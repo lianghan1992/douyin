@@ -44,8 +44,8 @@ const createDefaultBatchTask = (): BatchTask => ({
     id: generateUserFriendlyId(),
     source: createDefaultFileState(),
     material: createDefaultFileState(),
-    min_duration: 45,
-    max_duration: 60,
+    min_duration: 3600, // Default: 60 minutes in seconds
+    max_duration: 4200, // Default: 70 minutes in seconds
     slowdown_factor: null,
     effect: 'vflip',
 });
