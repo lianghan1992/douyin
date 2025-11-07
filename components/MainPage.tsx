@@ -16,8 +16,8 @@ interface BatchTask {
     id: string; // client-side unique ID
     source: FileState;
     material: FileState;
-    min_duration: number;
-    max_duration: number;
+    min_duration: number; // Stored in minutes
+    max_duration: number; // Stored in minutes
     slowdown_factor: number | null;
     effect: string;
 }
@@ -44,8 +44,8 @@ const createDefaultBatchTask = (): BatchTask => ({
     id: generateUserFriendlyId(),
     source: createDefaultFileState(),
     material: createDefaultFileState(),
-    min_duration: 3600, // Default: 60 minutes in seconds
-    max_duration: 4200, // Default: 70 minutes in seconds
+    min_duration: 60, // Default: 60 minutes
+    max_duration: 70, // Default: 70 minutes
     slowdown_factor: null,
     effect: 'vflip',
 });
@@ -189,8 +189,8 @@ const UploadSection: React.FC<{ token: string; onBatchSubmitted: () => void; }> 
                     source_hash: task.source.hash,
                     material_hash: task.material.hash,
                     task_id: task.id, // client-generated, for tracking
-                    min_duration: task.min_duration,
-                    max_duration: task.max_duration,
+                    min_duration: task.min_duration * 60, // Convert minutes to seconds
+                    max_duration: task.max_duration * 60, // Convert minutes to seconds
                     slowdown_factor: task.slowdown_factor,
                     effect: task.effect
                 };
@@ -288,12 +288,12 @@ const BatchTaskRow: React.FC<{
                 {advancedOptionsOpen && (
                     <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                            <label htmlFor={`min_duration-${task.id}`} className="block text-sm font-medium text-gray-700">最小持续时间 (秒)</label>
-                            <input type="number" name="min_duration" id={`min_duration-${task.id}`} value={task.min_duration} onChange={e => onUpdate(task.id, { min_duration: parseInt(e.target.value) })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
+                            <label htmlFor={`min_duration-${task.id}`} className="block text-sm font-medium text-gray-700">最小持续时间 (分钟)</label>
+                            <input type="number" name="min_duration" id={`min_duration-${task.id}`} value={task.min_duration} onChange={e => onUpdate(task.id, { min_duration: parseInt(e.target.value) || 0 })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
                         </div>
                         <div>
-                            <label htmlFor={`max_duration-${task.id}`} className="block text-sm font-medium text-gray-700">最大持续时间 (秒)</label>
-                            <input type="number" name="max_duration" id={`max_duration-${task.id}`} value={task.max_duration} onChange={e => onUpdate(task.id, { max_duration: parseInt(e.target.value) })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
+                            <label htmlFor={`max_duration-${task.id}`} className="block text-sm font-medium text-gray-700">最大持续时间 (分钟)</label>
+                            <input type="number" name="max_duration" id={`max_duration-${task.id}`} value={task.max_duration} onChange={e => onUpdate(task.id, { max_duration: parseInt(e.target.value) || 0 })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
                         </div>
                         <div>
                             <label htmlFor={`slowdown_factor-${task.id}`} className="block text-sm font-medium text-gray-700">减速因子 (可选)</label>
