@@ -68,7 +68,7 @@ export const api = {
     file: File, 
     token: string, 
     onProgress: (progress: { loaded: number; total: number }) => void
-  ): Promise<{ upload_id: string; filename: string }> => {
+  ): Promise<{ message: string; file_hash: string }> => {
     const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
     let totalBytesUploaded = 0;
     
@@ -118,13 +118,6 @@ export const api = {
     const completeFormData = new FormData();
     completeFormData.append("upload_id", upload_id);
     completeFormData.append("filename", file.name);
-    // These parameters are required by the endpoint but are placeholders for the batch flow,
-    // as the backend uses the file's hash to place it in the asset library.
-    completeFormData.append("file_type", "asset_library");
-    completeFormData.append("task_id", `temp-upload-${upload_id}`);
-    completeFormData.append("min_duration", "0");
-    completeFormData.append("max_duration", "0");
-    completeFormData.append("effect", "none");
 
     const completeResponse = await fetch("/upload/complete", {
       method: "POST",
@@ -140,8 +133,10 @@ export const api = {
     }
 
     onProgress({ loaded: file.size, total: file.size });
-
-    return { upload_id, filename: file.name };
+    
+    // Parse the JSON response from the backend, which includes the file_hash
+    const result = await completeResponse.json();
+    return result;
   },
 
   getTasks: async (token: string): Promise<TaskDetails[]> => {
