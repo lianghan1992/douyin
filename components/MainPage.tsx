@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import { TaskDetails, TaskStatus, StoredTask, SystemStats } from '../types';
 import { UploadIcon, SpinnerIcon, DownloadIcon, RefreshIcon, CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, VideoIcon, XIcon, TrashIcon, ClipboardListIcon } from './icons';
@@ -12,6 +12,7 @@ interface FileState {
     status: FileStatus;
     progress: number;
     error: string | null;
+    speed?: number;
 }
 interface BatchTask {
     id: string; // client-side unique ID
@@ -24,7 +25,7 @@ interface BatchTask {
 
 // --- Helper Functions ---
 const createDefaultFileState = (): FileState => ({
-    file: null, hash: null, status: 'waiting', progress: 0, error: null
+    file: null, hash: null, status: 'waiting', progress: 0, error: null, speed: 0
 });
 
 const generateUserFriendlyId = (): string => {
@@ -188,6 +189,7 @@ const UploadSection: React.FC<{ token: string; onBatchSubmitted: () => void; }> 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [globalError, setGlobalError] = useState<string | null>(null);
     const [submissionStatus, setSubmissionStatus] = useState('');
+    const uploadStatsRef = useRef<Map<string, { lastTime: number, lastLoaded: number }>>(new Map());
 
     const updateTask = (taskId: string, newValues: Partial<BatchTask>) => {
         setBatchTasks(currentTasks => 
@@ -254,29 +256,56 @@ const UploadSection: React.FC<{ token: string; onBatchSubmitted: () => void; }> 
                 });
             });
 
-            // 2. Upload files
+            // 2. Initialize stats tracking for uploads
+            uploadStatsRef.current.clear();
+            for (const [hash] of filesToUpload.entries()) {
+                uploadStatsRef.current.set(hash, { lastTime: Date.now(), lastLoaded: 0 });
+            }
+
+            // 3. Upload files
             let uploadedCount = 0;
             const totalToUpload = filesToUpload.size;
             for (const [hash, { file, tasks }] of filesToUpload.entries()) {
                 uploadedCount++;
                 setSubmissionStatus(`正在上传文件 ${uploadedCount} / ${totalToUpload}: ${file.name}`);
                 
-                // Mark all tasks using this file as 'uploading'
-                tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { status: 'uploading', progress: 0 }));
+                tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { status: 'uploading', progress: 0, speed: 0 }));
 
                 try {
                     await api.uploadFileInChunks(file, token, (progress) => {
-                        tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { progress: (progress.loaded / progress.total) * 100 }));
+                        const { loaded, total } = progress;
+                        const stats = uploadStatsRef.current.get(hash);
+                        const currentProgress = total > 0 ? (loaded / total) * 100 : 0;
+                        
+                        if (stats) {
+                            const now = Date.now();
+                            const timeDiff = (now - stats.lastTime) / 1000;
+
+                            if (timeDiff > 0.5 || loaded === total) { // Update speed every 0.5s or on completion
+                                const bytesDiff = loaded - stats.lastLoaded;
+                                const speed = bytesDiff / timeDiff;
+                                tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { 
+                                    progress: currentProgress,
+                                    speed: speed > 0 ? speed : 0 
+                                }));
+                                uploadStatsRef.current.set(hash, { ...stats, lastTime: now, lastLoaded: loaded });
+                            } else { // Just update progress
+                                tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { 
+                                    progress: currentProgress
+                                }));
+                            }
+                        } else {
+                             tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { progress: currentProgress }));
+                        }
                     });
-                     // Mark all tasks using this file as 'uploaded'
-                    tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { status: 'uploaded' }));
+                     tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { status: 'uploaded' }));
                 } catch(uploadError: any) {
                     tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { status: 'error', error: `上传失败: ${uploadError.message}` }));
-                    throw new Error(`文件 ${file.name} 上传失败。`); // Stop batch process
+                    throw new Error(`文件 ${file.name} 上传失败。`);
                 }
             }
             
-            // 3. Construct and submit batch task creation request
+            // 4. Construct and submit batch task creation request
             setSubmissionStatus('所有文件准备就绪，正在创建任务...');
             const tasksPayload = batchTasks.map(task => {
                 if (!task.source.hash || !task.material.hash) {
@@ -288,7 +317,7 @@ const UploadSection: React.FC<{ token: string; onBatchSubmitted: () => void; }> 
                 return {
                     source_hash: task.source.hash,
                     material_hash: task.material.hash,
-                    task_id: task.id, // client-generated, for tracking
+                    task_id: task.id,
                     min_duration: task.min_duration * 60, // Convert minutes to seconds
                     max_duration: task.max_duration * 60, // Convert minutes to seconds
                     effect: task.effect
@@ -423,13 +452,24 @@ const FileProcessor: React.FC<{
         switch(status) {
             case 'hashing':
             case 'checking':
-            case 'uploading':
-                const statusText = {hashing: '正在计算哈希...', checking: '正在校验文件...', uploading: '正在上传...'}[status];
-                return (
+                 const statusText = {hashing: '正在计算哈希...', checking: '正在校验文件...'}[status];
+                 return (
                     <div className="w-full text-center">
                         <SpinnerIcon className="mx-auto h-8 w-8 text-indigo-500 animate-spin"/>
                         <p className="mt-2 text-sm text-gray-800 font-medium">{statusText}</p>
-                        {(status === 'hashing' || status === 'uploading') && <ProgressBar percentage={progress} />}
+                        {(status === 'hashing') && <ProgressBar percentage={progress} />}
+                    </div>
+                );
+            case 'uploading':
+                return (
+                    <div className="w-full text-center space-y-1">
+                        <SpinnerIcon className="mx-auto h-8 w-8 text-indigo-500 animate-spin"/>
+                        <p className="text-sm text-gray-800 font-medium">正在上传...</p>
+                        <div className="flex justify-between text-xs font-medium text-gray-600 px-1">
+                            <span>{fileState.speed ? formatSpeed(fileState.speed) : '计算中...'}</span>
+                            <span>{Math.round(progress)}%</span>
+                        </div>
+                        <ProgressBar percentage={progress} />
                     </div>
                 );
             case 'server_exists':
