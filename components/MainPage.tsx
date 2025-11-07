@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../services/api';
-import { TaskDetails, TaskStatus, StoredTask } from '../types';
-import { UploadIcon, SpinnerIcon, DownloadIcon, RefreshIcon, CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, VideoIcon, XIcon, TrashIcon } from './icons';
+import { TaskDetails, TaskStatus, StoredTask, SystemStats } from '../types';
+import { UploadIcon, SpinnerIcon, DownloadIcon, RefreshIcon, CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, VideoIcon, XIcon, TrashIcon, ClipboardListIcon } from './icons';
 
 // --- Types for Batch Upload ---
 type FileStatus = 'waiting' | 'hashing' | 'checking' | 'needs_upload' | 'uploading' | 'uploaded' | 'server_exists' | 'error';
@@ -51,9 +51,6 @@ const createDefaultBatchTask = (): BatchTask => ({
 });
 
 const calculateSHA256 = async (file: File, onProgress: (percent: number) => void): Promise<string> => {
-    // Note: file.arrayBuffer() reads the entire file into memory.
-    // This can be an issue for extremely large files in memory-constrained environments.
-    // For robust, production-grade applications, a streaming approach with a library might be preferable.
     onProgress(0);
     const buffer = await file.arrayBuffer();
     onProgress(50);
@@ -73,6 +70,49 @@ const formatSpeed = (bytesPerSecond: number): string => {
     return `${parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 };
 
+// --- Formatting Helpers ---
+const formatDurationTable = (totalSeconds?: number): string => {
+    if (typeof totalSeconds !== 'number' || totalSeconds < 0) return 'N/A';
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    return [hours, minutes, seconds]
+        .map(v => v.toString().padStart(2, '0'))
+        .join(':');
+};
+
+const formatDurationAverage = (totalSeconds?: number): string => {
+    if (typeof totalSeconds !== 'number' || totalSeconds < 0) return 'N/A';
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+};
+
+const formatBigDuration = (totalSeconds?: number): string => {
+    if (typeof totalSeconds !== 'number' || totalSeconds < 0 || totalSeconds === 0) return '0 分钟';
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+    const parts = [];
+    if (days > 0) parts.push(`${days}天`);
+    if (hours > 0) parts.push(`${hours}小时`);
+    if (minutes > 0) parts.push(`${minutes}分钟`);
+    
+    if (parts.length === 0) return '< 1 分钟';
+    return parts.join(' ');
+};
+
+const formatSize = (bytes?: number): string => {
+    if (typeof bytes !== 'number' || bytes < 0) return 'N/A';
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+};
+
+
 const ProgressBar: React.FC<{ percentage: number }> = ({ percentage }) => (
     <div className="w-full bg-gray-200 rounded-full h-2">
         <div 
@@ -82,7 +122,68 @@ const ProgressBar: React.FC<{ percentage: number }> = ({ percentage }) => (
     </div>
 );
 
-// --- New Batch Upload Component ---
+// --- Statistics Component ---
+const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string | number; colorClass: string }> = ({ icon, label, value, colorClass }) => (
+    <div className="bg-white p-4 rounded-lg shadow flex items-center">
+        <div className={`p-3 rounded-full mr-4 ${colorClass}`}>
+            {icon}
+        </div>
+        <div>
+            <p className="text-sm text-gray-500">{label}</p>
+            <p className="text-xl font-bold text-gray-800">{value}</p>
+        </div>
+    </div>
+);
+
+const StatisticsSection: React.FC<{ stats: SystemStats }> = ({ stats }) => {
+    return (
+        <div className="mb-8">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">系统概览</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard 
+                    icon={<ClipboardListIcon className="h-6 w-6 text-white"/>} 
+                    label="总任务数" 
+                    value={stats.total_tasks}
+                    colorClass="bg-blue-500" 
+                />
+                <StatCard 
+                    icon={<CheckCircleIcon className="h-6 w-6 text-white"/>} 
+                    label="已完成" 
+                    value={stats.completed_tasks}
+                    colorClass="bg-green-500" 
+                />
+                <StatCard 
+                    icon={<SpinnerIcon className="h-6 w-6 text-white"/>} 
+                    label="处理中" 
+                    value={stats.running_tasks}
+                    colorClass="bg-yellow-500"
+                />
+                <StatCard 
+                    icon={<XCircleIcon className="h-6 w-6 text-white"/>} 
+                    label="已失败" 
+                    value={stats.failed_tasks}
+                    colorClass="bg-red-500"
+                />
+            </div>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                 <div className="bg-white p-4 rounded-lg shadow">
+                    <h3 className="text-sm font-medium text-gray-500">总处理时长</h3>
+                    <p className="text-2xl font-bold text-gray-800 mt-1">{formatBigDuration(stats.total_processing_time_seconds)}</p>
+                </div>
+                 <div className="bg-white p-4 rounded-lg shadow">
+                    <h3 className="text-sm font-medium text-gray-500">平均处理时长</h3>
+                    <p className="text-2xl font-bold text-gray-800 mt-1">{formatDurationAverage(stats.average_processing_time_seconds)}</p>
+                </div>
+                 <div className="bg-white p-4 rounded-lg shadow">
+                    <h3 className="text-sm font-medium text-gray-500">生成文件总大小</h3>
+                    <p className="text-2xl font-bold text-gray-800 mt-1">{formatSize(stats.total_generated_size_bytes)}</p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- Batch Upload Component ---
 const UploadSection: React.FC<{ token: string; onBatchSubmitted: () => void; }> = ({ token, onBatchSubmitted }) => {
     const [batchTasks, setBatchTasks] = useState<BatchTask[]>([createDefaultBatchTask()]);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -401,25 +502,6 @@ const TaskListSection: React.FC<{
     const [downloadStats, setDownloadStats] = useState<{ [taskId: string]: { speed: number, lastTime: number, lastLoaded: number } }>({});
     const tasksPerPage = 10;
 
-    const formatDuration = (totalSeconds?: number): string => {
-        if (typeof totalSeconds !== 'number' || totalSeconds < 0) return 'N/A';
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const seconds = Math.floor(totalSeconds % 60);
-        return [hours, minutes, seconds]
-            .map(v => v.toString().padStart(2, '0'))
-            .join(':');
-    };
-
-    const formatSize = (bytes?: number): string => {
-        if (typeof bytes !== 'number' || bytes < 0) return 'N/A';
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-    };
-
     const sortedTasks = useMemo(() => {
         let sortableTasks = [...tasks];
         if (sortConfig !== null) {
@@ -584,8 +666,8 @@ const TaskListSection: React.FC<{
                         <div className="mt-4 border-t border-gray-200 pt-4 text-sm">
                             <dl className="space-y-2">
                                 <div className="flex justify-between"><dt className="text-gray-500">创建时间</dt><dd className="text-gray-800 text-right">{formatDate(task.createdAt)}</dd></div>
-                                <div className="flex justify-between"><dt className="text-gray-500">处理耗时</dt><dd className="text-gray-800">{formatDuration(task.processing_time_seconds)}</dd></div>
-                                <div className="flex justify-between"><dt className="text-gray-500">视频时长</dt><dd className="text-gray-800">{formatDuration(task.final_video_duration_seconds)}</dd></div>
+                                <div className="flex justify-between"><dt className="text-gray-500">处理耗时</dt><dd className="text-gray-800">{formatDurationTable(task.processing_time_seconds)}</dd></div>
+                                <div className="flex justify-between"><dt className="text-gray-500">视频时长</dt><dd className="text-gray-800">{formatDurationTable(task.final_video_duration_seconds)}</dd></div>
                                 <div className="flex justify-between"><dt className="text-gray-500">文件大小</dt><dd className="text-gray-800">{formatSize(task.final_video_size_bytes)}</dd></div>
                             </dl>
                         </div>
@@ -616,8 +698,8 @@ const TaskListSection: React.FC<{
                                     <td className="px-4 py-4 whitespace-nowrap text-sm font-mono text-gray-700">{task.id}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">{getStatusIndicator(task.status)}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.createdAt)}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.processing_time_seconds)}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{formatDuration(task.final_video_duration_seconds)}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{formatDurationTable(task.processing_time_seconds)}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{formatDurationTable(task.final_video_duration_seconds)}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{formatSize(task.final_video_size_bytes)}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         {renderTaskActions(task)}
@@ -644,8 +726,6 @@ const TaskListSection: React.FC<{
     );
 };
 
-
-// FIX: Added missing MainPageProps interface definition.
 interface MainPageProps {
   token: string;
   onLogout: () => void;
@@ -653,6 +733,7 @@ interface MainPageProps {
 
 const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
   const [tasks, setTasks] = useState<TaskDetails[]>([]);
+  const [stats, setStats] = useState<SystemStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchAllTasks = useCallback(async () => {
@@ -666,18 +747,37 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
     }
   }, [token]);
 
-  const refreshSpecificTask = useCallback(async (taskId: string) => {
+  const fetchStats = useCallback(async () => {
     try {
-        const updatedTask = await api.getTaskStatus(taskId, token);
-        setTasks(currentTasks => currentTasks.map(t => t.id === taskId ? updatedTask : t));
-    } catch (error) {
-        console.error(`刷新任务失败 ${taskId}:`, error);
+      const serverStats = await api.getStatistics(token);
+      setStats(serverStats);
+    } catch (err: any) {
+      console.error("无法从服务器获取统计信息:", err);
     }
   }, [token]);
 
+  const refreshSpecificTask = useCallback(async (taskId: string) => {
+    try {
+        const updatedTask = await api.getTaskStatus(taskId, token);
+        setTasks(currentTasks => {
+            const oldTask = currentTasks.find(t => t.id === taskId);
+            const newTasks = currentTasks.map(t => t.id === taskId ? updatedTask : t);
+            
+            if (oldTask && oldTask.status !== updatedTask.status && 
+               (updatedTask.status === TaskStatus.COMPLETED || updatedTask.status === TaskStatus.FAILED)) {
+                fetchStats();
+            }
+            return newTasks;
+        });
+    } catch (error) {
+        console.error(`刷新任务失败 ${taskId}:`, error);
+    }
+  }, [token, fetchStats]);
+
   useEffect(() => {
     fetchAllTasks();
-  }, [fetchAllTasks]);
+    fetchStats();
+  }, [fetchAllTasks, fetchStats]);
 
   useEffect(() => {
     const tasksToPoll = tasks.filter(
@@ -699,10 +799,12 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
 
   const handleBatchSubmitted = () => {
       fetchAllTasks();
+      fetchStats();
   };
 
   const handleTaskDeleted = (taskId: string) => {
     setTasks(currentTasks => currentTasks.filter(task => task.id !== taskId));
+    fetchStats();
   };
 
   return (
@@ -719,6 +821,7 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
         </div>
       </header>
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        {stats && <StatisticsSection stats={stats} />}
         <UploadSection token={token} onBatchSubmitted={handleBatchSubmitted} />
         {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl relative my-6" role="alert">{error}</div>}
         <TaskListSection tasks={tasks} token={token} refreshTask={refreshSpecificTask} onTaskDeleted={handleTaskDeleted} />

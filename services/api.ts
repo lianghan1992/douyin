@@ -1,4 +1,4 @@
-import { TaskDetails } from '../types';
+import { TaskDetails, SystemStats } from '../types';
 
 export const api = {
   login: async (username: string, password: string, rememberMe: boolean): Promise<{ access_token: string }> => {
@@ -137,6 +137,19 @@ export const api = {
     // Parse the JSON response from the backend, which includes the file_hash
     const result = await completeResponse.json();
     return result;
+  },
+
+  getStatistics: async (token: string): Promise<SystemStats> => {
+    const response = await fetch('/api/statistics', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+      throw new Error(errorData.detail || '获取统计信息失败。');
+    }
+    return response.json();
   },
 
   getTasks: async (token: string): Promise<TaskDetails[]> => {
