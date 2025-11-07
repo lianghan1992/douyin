@@ -26,8 +26,22 @@ interface BatchTask {
 const createDefaultFileState = (): FileState => ({
     file: null, hash: null, status: 'waiting', progress: 0, error: null
 });
+
+const generateUserFriendlyId = (): string => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    const seconds = now.getSeconds().toString().padStart(2, '0');
+    const randomSuffix = Math.floor(Math.random() * 9000) + 1000; // 4-digit random number
+
+    return `${year}${month}${day}-${hours}${minutes}${seconds}-${randomSuffix}`;
+};
+
 const createDefaultBatchTask = (): BatchTask => ({
-    id: `task_${Date.now()}_${Math.random()}`,
+    id: generateUserFriendlyId(),
     source: createDefaultFileState(),
     material: createDefaultFileState(),
     min_duration: 45,
