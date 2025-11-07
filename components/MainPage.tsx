@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../services/api';
 import { TaskDetails, TaskStatus, StoredTask, SystemStats } from '../types';
@@ -18,7 +19,6 @@ interface BatchTask {
     material: FileState;
     min_duration: number; // Stored in minutes
     max_duration: number; // Stored in minutes
-    slowdown_factor: number | null;
     effect: string;
 }
 
@@ -46,7 +46,6 @@ const createDefaultBatchTask = (): BatchTask => ({
     material: createDefaultFileState(),
     min_duration: 60, // Default: 60 minutes
     max_duration: 70, // Default: 70 minutes
-    slowdown_factor: null,
     effect: 'vflip',
 });
 
@@ -292,7 +291,6 @@ const UploadSection: React.FC<{ token: string; onBatchSubmitted: () => void; }> 
                     task_id: task.id, // client-generated, for tracking
                     min_duration: task.min_duration * 60, // Convert minutes to seconds
                     max_duration: task.max_duration * 60, // Convert minutes to seconds
-                    slowdown_factor: task.slowdown_factor,
                     effect: task.effect
                 };
             });
@@ -323,7 +321,7 @@ const UploadSection: React.FC<{ token: string; onBatchSubmitted: () => void; }> 
     
     return (
         <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">创建新任务 (批量模式)</h2>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">创建新任务</h2>
             <form onSubmit={handleSubmit} className="space-y-6">
                 {batchTasks.length === 0 && (
                     <div className="text-center py-8 border-2 border-dashed rounded-lg">
@@ -387,16 +385,16 @@ const BatchTaskRow: React.FC<{
                     <ChevronDownIcon className={`h-5 w-5 transform transition-transform text-gray-500 ${advancedOptionsOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {advancedOptionsOpen && (
-                    <div className="mt-4 flex flex-col md:flex-row md:items-end gap-4">
-                        <div className="flex-1 min-w-[120px]">
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 md:items-end">
+                        <div className="min-w-[120px]">
                             <label htmlFor={`min_duration-${task.id}`} className="block text-sm font-medium text-gray-700">最小持续时间 (分钟)</label>
                             <input type="number" name="min_duration" id={`min_duration-${task.id}`} value={task.min_duration} onChange={e => onUpdate(task.id, { min_duration: parseInt(e.target.value) || 0 })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
                         </div>
-                        <div className="flex-1 min-w-[120px]">
+                        <div className="min-w-[120px]">
                             <label htmlFor={`max_duration-${task.id}`} className="block text-sm font-medium text-gray-700">最大持续时间 (分钟)</label>
                             <input type="number" name="max_duration" id={`max_duration-${task.id}`} value={task.max_duration} onChange={e => onUpdate(task.id, { max_duration: parseInt(e.target.value) || 0 })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
                         </div>
-                        <div className="flex-1 min-w-[120px]">
+                        <div className="min-w-[120px]">
                             <label htmlFor={`effect-${task.id}`} className="block text-sm font-medium text-gray-700">效果</label>
                             <select id={`effect-${task.id}`} name="effect" value={task.effect} onChange={e => onUpdate(task.id, { effect: e.target.value })} disabled={isSubmitting} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
                                 <option value="vflip">垂直翻转</option>
@@ -811,7 +809,7 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
     <div className="min-h-screen bg-slate-100">
       <header className="bg-white shadow-md">
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">视频处理面板</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Video Repurposing Tools</h1>
           <button
             onClick={onLogout}
             className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
