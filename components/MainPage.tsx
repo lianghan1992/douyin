@@ -286,20 +286,16 @@ const BatchTaskRow: React.FC<{
                     <ChevronDownIcon className={`h-5 w-5 transform transition-transform text-gray-500 ${advancedOptionsOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {advancedOptionsOpen && (
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
+                    <div className="mt-4 flex flex-col md:flex-row md:items-end gap-4">
+                        <div className="flex-1 min-w-[120px]">
                             <label htmlFor={`min_duration-${task.id}`} className="block text-sm font-medium text-gray-700">最小持续时间 (分钟)</label>
                             <input type="number" name="min_duration" id={`min_duration-${task.id}`} value={task.min_duration} onChange={e => onUpdate(task.id, { min_duration: parseInt(e.target.value) || 0 })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
                         </div>
-                        <div>
+                        <div className="flex-1 min-w-[120px]">
                             <label htmlFor={`max_duration-${task.id}`} className="block text-sm font-medium text-gray-700">最大持续时间 (分钟)</label>
                             <input type="number" name="max_duration" id={`max_duration-${task.id}`} value={task.max_duration} onChange={e => onUpdate(task.id, { max_duration: parseInt(e.target.value) || 0 })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
                         </div>
-                        <div>
-                            <label htmlFor={`slowdown_factor-${task.id}`} className="block text-sm font-medium text-gray-700">减速因子 (可选)</label>
-                            <input type="number" step="0.1" name="slowdown_factor" id={`slowdown_factor-${task.id}`} value={task.slowdown_factor ?? ''} onChange={e => onUpdate(task.id, { slowdown_factor: e.target.value ? parseFloat(e.target.value) : null })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
-                        </div>
-                        <div>
+                        <div className="flex-1 min-w-[120px]">
                             <label htmlFor={`effect-${task.id}`} className="block text-sm font-medium text-gray-700">效果</label>
                             <select id={`effect-${task.id}`} name="effect" value={task.effect} onChange={e => onUpdate(task.id, { effect: e.target.value })} disabled={isSubmitting} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
                                 <option value="vflip">垂直翻转</option>
