@@ -224,17 +224,16 @@ const UploadSection: React.FC<{ token: string; onBatchSubmitted: () => void; }> 
                             onFileChange={handleFileChange}
                             onRemove={handleRemoveTask}
                             isSubmitting={isSubmitting}
-                            isFirst={index === 0}
                         />
                     ))}
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-4 pt-4 border-t">
-                    <button type="button" onClick={handleAddTask} disabled={isSubmitting} className="w-full sm:w-auto flex-grow justify-center items-center py-3 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50">
-                        添加另一个任务
+                <div className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-4 border-t">
+                    <button type="button" onClick={handleAddTask} disabled={isSubmitting} className="inline-flex items-center justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50">
+                        添加任务
                     </button>
-                    <button type="submit" disabled={isSubmitting || !canSubmit} className="w-full sm:w-auto flex-grow justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-colors duration-200">
-                        {isSubmitting ? <SpinnerIcon className="animate-spin h-5 w-5 mr-3" /> : <UploadIcon className="h-5 w-5 mr-2"/>}
+                    <button type="submit" disabled={isSubmitting || !canSubmit} className="inline-flex items-center justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-colors duration-200">
+                        {isSubmitting ? <SpinnerIcon className="animate-spin h-5 w-5 mr-2" /> : <UploadIcon className="h-5 w-5 mr-2"/>}
                         {isSubmitting ? submissionStatus : `提交 ${batchTasks.length} 个任务`}
                     </button>
                 </div>
@@ -251,9 +250,8 @@ const BatchTaskRow: React.FC<{
     onFileChange: (taskId: string, fileType: 'source' | 'material', file: File | null) => void,
     onRemove: (taskId: string) => void,
     isSubmitting: boolean,
-    isFirst: boolean,
-}> = ({ task, onUpdate, onFileChange, onRemove, isSubmitting, isFirst }) => {
-    const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(isFirst);
+}> = ({ task, onUpdate, onFileChange, onRemove, isSubmitting }) => {
+    const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
 
     return (
         <div className="p-4 border border-gray-200 rounded-lg bg-gray-50/50">
@@ -320,7 +318,7 @@ const FileProcessor: React.FC<{
                 const statusText = {hashing: '正在计算哈希...', checking: '正在校验文件...', uploading: '正在上传...'}[status];
                 return (
                     <div className="w-full text-center">
-                        <SpinnerIcon className="mx-auto h-10 w-10 text-indigo-500 animate-spin"/>
+                        <SpinnerIcon className="mx-auto h-8 w-8 text-indigo-500 animate-spin"/>
                         <p className="mt-2 text-sm text-gray-800 font-medium">{statusText}</p>
                         {(status === 'hashing' || status === 'uploading') && <ProgressBar percentage={progress} />}
                     </div>
@@ -328,7 +326,7 @@ const FileProcessor: React.FC<{
             case 'server_exists':
                 return (
                      <div className="text-center">
-                        <CheckCircleIcon className="mx-auto h-10 w-10 text-green-500"/>
+                        <CheckCircleIcon className="mx-auto h-8 w-8 text-green-500"/>
                         <p className="mt-2 text-sm text-gray-800 font-medium truncate max-w-xs" title={file!.name}>{file!.name}</p>
                         <p className="text-xs text-green-600 font-semibold">秒传就绪 (文件已存在)</p>
                     </div>
@@ -337,7 +335,7 @@ const FileProcessor: React.FC<{
             case 'uploaded':
                  return (
                      <div className="text-center">
-                        <CheckCircleIcon className="mx-auto h-10 w-10 text-blue-500"/>
+                        <CheckCircleIcon className="mx-auto h-8 w-8 text-blue-500"/>
                         <p className="mt-2 text-sm text-gray-800 font-medium truncate max-w-xs" title={file!.name}>{file!.name}</p>
                         <p className="text-xs text-blue-600 font-semibold">{status === 'uploaded' ? '上传完成' : '待上传'}</p>
                     </div>
@@ -345,14 +343,14 @@ const FileProcessor: React.FC<{
             case 'error':
                  return (
                      <div className="text-center">
-                        <XCircleIcon className="mx-auto h-10 w-10 text-red-500"/>
+                        <XCircleIcon className="mx-auto h-8 w-8 text-red-500"/>
                         <p className="mt-2 text-sm text-red-700 font-medium truncate max-w-xs" title={error!}>{error}</p>
                     </div>
                  );
             default: // 'waiting'
                 return (
                     <div className="space-y-1 text-center">
-                        <VideoIcon className="mx-auto h-12 w-12 text-gray-400"/>
+                        <VideoIcon className="mx-auto h-8 w-8 text-gray-400"/>
                         <div className="flex text-sm text-gray-600">
                             <label htmlFor={id} className="relative cursor-pointer bg-transparent rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none">
                             <span>点击上传</span>
@@ -369,7 +367,7 @@ const FileProcessor: React.FC<{
     return (
         <div>
             <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
-            <div className="mt-1 relative flex justify-center items-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md transition-colors duration-200 ease-in-out hover:border-indigo-400 bg-white min-h-[160px]">
+            <div className="mt-1 relative flex justify-center items-center p-4 border-2 border-gray-300 border-dashed rounded-md transition-colors duration-200 ease-in-out hover:border-indigo-400 bg-white min-h-[120px]">
                 <StatusDisplay />
                 {file && !isSubmitting && (
                     <button type="button" onClick={() => onFileChange(null)} className="absolute top-2 right-2 p-1 rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500">
