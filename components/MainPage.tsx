@@ -3,10 +3,52 @@ import { api } from '../services/api';
 import { TaskDetails, TaskStatus, StoredTask } from '../types';
 import { UploadIcon, SpinnerIcon, DownloadIcon, RefreshIcon, CheckCircleIcon, XCircleIcon, ClockIcon, ChevronDownIcon, VideoIcon, XIcon, TrashIcon } from './icons';
 
-interface MainPageProps {
-  token: string;
-  onLogout: () => void;
+// --- Types for Batch Upload ---
+type FileStatus = 'waiting' | 'hashing' | 'checking' | 'needs_upload' | 'uploading' | 'uploaded' | 'server_exists' | 'error';
+interface FileState {
+    file: File | null;
+    hash: string | null;
+    status: FileStatus;
+    progress: number;
+    error: string | null;
 }
+interface BatchTask {
+    id: string; // client-side unique ID
+    source: FileState;
+    material: FileState;
+    min_duration: number;
+    max_duration: number;
+    slowdown_factor: number | null;
+    effect: string;
+}
+
+// --- Helper Functions ---
+const createDefaultFileState = (): FileState => ({
+    file: null, hash: null, status: 'waiting', progress: 0, error: null
+});
+const createDefaultBatchTask = (): BatchTask => ({
+    id: `task_${Date.now()}_${Math.random()}`,
+    source: createDefaultFileState(),
+    material: createDefaultFileState(),
+    min_duration: 45,
+    max_duration: 60,
+    slowdown_factor: null,
+    effect: 'vflip',
+});
+
+const calculateSHA256 = async (file: File, onProgress: (percent: number) => void): Promise<string> => {
+    // Note: file.arrayBuffer() reads the entire file into memory.
+    // This can be an issue for extremely large files in memory-constrained environments.
+    // For robust, production-grade applications, a streaming approach with a library might be preferable.
+    onProgress(0);
+    const buffer = await file.arrayBuffer();
+    onProgress(50);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    onProgress(100);
+    return hashHex;
+};
 
 const formatSpeed = (bytesPerSecond: number): string => {
     if (!isFinite(bytesPerSecond) || bytesPerSecond < 0) return '0 B/s';
@@ -17,7 +59,6 @@ const formatSpeed = (bytesPerSecond: number): string => {
     return `${parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 };
 
-
 const ProgressBar: React.FC<{ percentage: number }> = ({ percentage }) => (
     <div className="w-full bg-gray-200 rounded-full h-2">
         <div 
@@ -27,180 +68,318 @@ const ProgressBar: React.FC<{ percentage: number }> = ({ percentage }) => (
     </div>
 );
 
-const UploadSection: React.FC<{ token: string; onTaskCreated: (task: StoredTask) => void; }> = ({ token, onTaskCreated }) => {
-    const [sourceVideo, setSourceVideo] = useState<File | null>(null);
-    const [materialVideo, setMaterialVideo] = useState<File | null>(null);
-    const [uploadProgress, setUploadProgress] = useState<{ percentage: number; file: string } | null>(null);
-    const [uploadStats, setUploadStats] = useState({ speed: 0, lastTime: 0, lastLoaded: 0 });
-    const [message, setMessage] = useState('');
-    const [min_duration, setMinDuration] = useState(45);
-    const [max_duration, setMaxDuration] = useState(60);
-    const [slowdown_factor, setSlowdownFactor] = useState<number | null>(null);
-    const [effect, setEffect] = useState('vflip');
-    const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
+// --- New Batch Upload Component ---
+const UploadSection: React.FC<{ token: string; onBatchSubmitted: () => void; }> = ({ token, onBatchSubmitted }) => {
+    const [batchTasks, setBatchTasks] = useState<BatchTask[]>([createDefaultBatchTask()]);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [globalError, setGlobalError] = useState<string | null>(null);
+    const [submissionStatus, setSubmissionStatus] = useState('');
 
-    const isUploading = uploadProgress !== null;
+    const updateTask = (taskId: string, newValues: Partial<BatchTask>) => {
+        setBatchTasks(currentTasks => 
+            currentTasks.map(task => task.id === taskId ? { ...task, ...newValues } : task)
+        );
+    };
+
+    const updateFileState = (taskId: string, fileType: 'source' | 'material', newFileState: Partial<FileState>) => {
+        setBatchTasks(currentTasks =>
+            currentTasks.map(task => {
+                if (task.id === taskId) {
+                    return { ...task, [fileType]: { ...task[fileType], ...newFileState } };
+                }
+                return task;
+            })
+        );
+    };
     
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, fileType: 'source' | 'material') => {
-        if (e.target.files && e.target.files[0]) {
-            if (fileType === 'source') setSourceVideo(e.target.files[0]);
-            else setMaterialVideo(e.target.files[0]);
+    const handleFileChange = async (taskId: string, fileType: 'source' | 'material', file: File | null) => {
+        if (!file) {
+            updateTask(taskId, { [fileType]: createDefaultFileState() });
+            return;
+        }
+
+        updateFileState(taskId, fileType, { file, status: 'hashing', progress: 0, error: null });
+        try {
+            const hash = await calculateSHA256(file, (p) => updateFileState(taskId, fileType, { progress: p }));
+            updateFileState(taskId, fileType, { hash, status: 'checking' });
+            
+            const { exists } = await api.checkVideoExistence(hash, token);
+            updateFileState(taskId, fileType, { status: exists ? 'server_exists' : 'needs_upload' });
+        } catch (err: any) {
+            console.error('File processing error:', err);
+            updateFileState(taskId, fileType, { status: 'error', error: err.message || '文件处理失败' });
         }
     };
 
-    const handleUploadProgress = (progress: { loaded: number, total: number, file: string }) => {
-        const percentage = progress.total > 0 ? (progress.loaded / progress.total) * 100 : 0;
-        setUploadProgress({ percentage, file: progress.file });
-
-        const now = Date.now();
-        const timeDiff = (now - uploadStats.lastTime) / 1000; // in seconds
-        
-        if (timeDiff > 0.5 || progress.loaded === progress.total) { // Update speed every 0.5s or on completion
-            const bytesDiff = progress.loaded - uploadStats.lastLoaded;
-            const speed = bytesDiff / timeDiff;
-            setUploadStats({
-                speed: speed > 0 ? speed : 0,
-                lastTime: now,
-                lastLoaded: progress.loaded,
-            });
-        }
+    const handleAddTask = () => {
+        setBatchTasks(current => [...current, createDefaultBatchTask()]);
     };
 
+    const handleRemoveTask = (taskId: string) => {
+        setBatchTasks(current => current.filter(task => task.id !== taskId));
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!sourceVideo || !materialVideo) {
-            setMessage('请选择源视频和素材视频。');
-            return;
-        }
-        setUploadProgress({ percentage: 0, file: sourceVideo.name });
-        setUploadStats({ speed: 0, lastTime: Date.now(), lastLoaded: 0 });
-        setMessage('');
+        setIsSubmitting(true);
+        setGlobalError(null);
+        setSubmissionStatus('准备上传...');
+
         try {
-            const response = await api.createTask(
-                sourceVideo, materialVideo, token, 
-                min_duration, max_duration, slowdown_factor, effect,
-                handleUploadProgress
-            );
-            if (response?.task_id) {
-                setMessage(`任务创建成功！任务ID: ${response.task_id}`);
-                onTaskCreated({ id: response.task_id, createdAt: new Date().toISOString() });
-                setSourceVideo(null);
-                setMaterialVideo(null);
-                setTimeout(() => setMessage(''), 3000);
+            // 1. Collect all unique files that need uploading
+            const filesToUpload = new Map<string, { file: File, tasks: {taskId: string, type: 'source' | 'material'}[] }>();
+            batchTasks.forEach(task => {
+                (['source', 'material'] as const).forEach(type => {
+                    const fileState = task[type];
+                    if (fileState.status === 'needs_upload' && fileState.file && fileState.hash) {
+                        if (!filesToUpload.has(fileState.hash)) {
+                            filesToUpload.set(fileState.hash, { file: fileState.file, tasks: [] });
+                        }
+                        filesToUpload.get(fileState.hash)!.tasks.push({ taskId: task.id, type });
+                    }
+                });
+            });
+
+            // 2. Upload files
+            let uploadedCount = 0;
+            const totalToUpload = filesToUpload.size;
+            for (const [hash, { file, tasks }] of filesToUpload.entries()) {
+                uploadedCount++;
+                setSubmissionStatus(`正在上传文件 ${uploadedCount} / ${totalToUpload}: ${file.name}`);
+                
+                // Mark all tasks using this file as 'uploading'
+                tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { status: 'uploading', progress: 0 }));
+
+                try {
+                    await api.uploadFileInChunks(file, token, (progress) => {
+                        tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { progress: (progress.loaded / progress.total) * 100 }));
+                    });
+                     // Mark all tasks using this file as 'uploaded'
+                    tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { status: 'uploaded' }));
+                } catch(uploadError: any) {
+                    tasks.forEach(({ taskId, type }) => updateFileState(taskId, type, { status: 'error', error: `上传失败: ${uploadError.message}` }));
+                    throw new Error(`文件 ${file.name} 上传失败。`); // Stop batch process
+                }
             }
-        } catch (error: any) {
-            setMessage(`任务创建失败: ${error.message || '请稍后重试。'}`);
+            
+            // 3. Construct and submit batch task creation request
+            setSubmissionStatus('所有文件准备就绪，正在创建任务...');
+            const tasksPayload = batchTasks.map(task => {
+                if (!task.source.hash || !task.material.hash) {
+                    throw new Error(`任务 ${task.id} 的文件信息不完整。`);
+                }
+                if (task.source.status === 'error' || task.material.status === 'error'){
+                     throw new Error(`任务 ${task.id} 包含错误的文件，无法提交。`);
+                }
+                return {
+                    source_hash: task.source.hash,
+                    material_hash: task.material.hash,
+                    task_id: task.id, // client-generated, for tracking
+                    min_duration: task.min_duration,
+                    max_duration: task.max_duration,
+                    slowdown_factor: task.slowdown_factor,
+                    effect: task.effect
+                };
+            });
+
+            await api.createTasksBatch(tasksPayload, token);
+            setSubmissionStatus('批量任务已成功提交！');
+            setTimeout(() => {
+                setBatchTasks([createDefaultBatchTask()]);
+                onBatchSubmitted();
+                setSubmissionStatus('');
+            }, 3000);
+
+        } catch (err: any) {
+            console.error("Batch submission error:", err);
+            setGlobalError(err.message || "批量提交失败，请检查文件并重试。");
+            setSubmissionStatus('');
         } finally {
-            setUploadProgress(null);
+            setIsSubmitting(false);
         }
     };
 
-    const FileInput: React.FC<{
-      id: string;
-      label: string;
-      file: File | null;
-      onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-      onClear: () => void;
-      isUploading: boolean;
-    }> = ({ id, label, file, onChange, onClear, isUploading }) => (
-      <div>
-        <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
-        <div className="mt-1 relative flex justify-center items-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md transition-colors duration-200 ease-in-out hover:border-indigo-400 bg-gray-50">
-          {file ? (
-            <div className="text-center">
-                <CheckCircleIcon className="mx-auto h-10 w-10 text-green-500"/>
-                <p className="mt-2 text-sm text-gray-800 font-medium truncate max-w-xs" title={file.name}>{file.name}</p>
-                <p className="text-xs text-gray-500">{`${(file.size / 1024 / 1024).toFixed(2)} MB`}</p>
-                {!isUploading && (
-                    <button type="button" onClick={onClear} className="absolute top-2 right-2 p-1 rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        <XIcon className="h-4 w-4"/>
-                    </button>
-                )}
-            </div>
-          ) : (
-            <div className="space-y-1 text-center">
-              <VideoIcon className="mx-auto h-12 w-12 text-gray-400"/>
-              <div className="flex text-sm text-gray-600">
-                <label htmlFor={id} className="relative cursor-pointer bg-transparent rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
-                  <span>点击上传</span>
-                  <input id={id} name={id} type="file" accept="video/*" className="sr-only" onChange={onChange} disabled={isUploading}/>
-                </label>
-                <p className="pl-1">或拖拽文件到此处</p>
-              </div>
-              <p className="text-xs text-gray-500">支持 MP4, MOV 等格式</p>
-            </div>
-          )}
-        </div>
-      </div>
+    const canSubmit = batchTasks.length > 0 && batchTasks.every(task =>
+        task.source.file && task.material.file &&
+        !['waiting', 'hashing', 'checking', 'uploading'].includes(task.source.status) &&
+        !['waiting', 'hashing', 'checking', 'uploading'].includes(task.material.status) &&
+        task.source.status !== 'error' && task.material.status !== 'error'
     );
-
+    
     return (
         <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">创建新任务</h2>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">创建新任务 (批量模式)</h2>
             <form onSubmit={handleSubmit} className="space-y-6">
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <FileInput id="source-video" label="源视频" file={sourceVideo} onChange={e => handleFileChange(e, 'source')} onClear={() => setSourceVideo(null)} isUploading={isUploading} />
-                    <FileInput id="material-video" label="素材视频" file={materialVideo} onChange={e => handleFileChange(e, 'material')} onClear={() => setMaterialVideo(null)} isUploading={isUploading} />
-                </div>
-                
-                <div className="border-t border-gray-200 pt-4">
-                    <button type="button" onClick={() => setAdvancedOptionsOpen(!advancedOptionsOpen)} className="flex justify-between items-center w-full text-left text-sm font-medium text-gray-700 hover:text-gray-900 focus:outline-none">
-                        <span>高级处理选项</span>
-                        <ChevronDownIcon className={`h-5 w-5 transform transition-transform text-gray-500 ${advancedOptionsOpen ? 'rotate-180' : ''}`} />
-                    </button>
-                    {advancedOptionsOpen && (
-                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label htmlFor="min_duration" className="block text-sm font-medium text-gray-700">最小持续时间 (秒)</label>
-                                <input type="number" name="min_duration" id="min_duration" value={min_duration} onChange={e => setMinDuration(parseInt(e.target.value))} disabled={isUploading} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
-                            </div>
-                            <div>
-                                <label htmlFor="max_duration" className="block text-sm font-medium text-gray-700">最大持续时间 (秒)</label>
-                                <input type="number" name="max_duration" id="max_duration" value={max_duration} onChange={e => setMaxDuration(parseInt(e.target.value))} disabled={isUploading} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
-                            </div>
-                            <div>
-                                <label htmlFor="slowdown_factor" className="block text-sm font-medium text-gray-700">减速因子 (可选)</label>
-                                <input type="number" step="0.1" name="slowdown_factor" id="slowdown_factor" value={slowdown_factor ?? ''} onChange={e => setSlowdownFactor(e.target.value ? parseFloat(e.target.value) : null)} disabled={isUploading} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
-                            </div>
-                            <div>
-                                <label htmlFor="effect" className="block text-sm font-medium text-gray-700">效果</label>
-                                <select id="effect" name="effect" value={effect} onChange={e => setEffect(e.target.value)} disabled={isUploading} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
-                                    <option value="vflip">垂直翻转</option>
-                                    <option value="hflip">水平翻转</option>
-                                    <option value="grayscale">灰度</option>
-                                    <option value="rotate_90">旋转90度</option>
-                                </select>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <div>
-                    <button type="submit" disabled={isUploading || !sourceVideo || !materialVideo} className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-colors duration-200">
-                        {isUploading ? <SpinnerIcon className="animate-spin h-5 w-5 mr-3" /> : <UploadIcon className="h-5 w-5 mr-2"/>}
-                        {isUploading ? '上传处理中...' : '开始处理'}
-                    </button>
-                </div>
-
-                {uploadProgress && (
-                    <div className="space-y-2 pt-2">
-                        <div className="flex justify-between text-sm font-medium text-gray-700">
-                            <span className="truncate max-w-[50%]">正在上传: {uploadProgress.file}</span>
-                            <div className="flex items-center gap-x-3">
-                                <span>{formatSpeed(uploadStats.speed)}</span>
-                                <span>{Math.round(uploadProgress.percentage)}%</span>
-                            </div>
-                        </div>
-                        <ProgressBar percentage={uploadProgress.percentage} />
+                {batchTasks.length === 0 && (
+                    <div className="text-center py-8 border-2 border-dashed rounded-lg">
+                        <p className="text-gray-500">点击 "添加任务" 开始创建您的第一个任务。</p>
                     </div>
                 )}
-                
-                {message && <p className={`mt-4 text-sm text-center ${message.includes('失败') ? 'text-red-600' : 'text-green-600'}`}>{message}</p>}
+                <div className="space-y-6">
+                    {batchTasks.map((task, index) => (
+                        <BatchTaskRow
+                            key={task.id}
+                            task={task}
+                            onUpdate={updateTask}
+                            onFileChange={handleFileChange}
+                            onRemove={handleRemoveTask}
+                            isSubmitting={isSubmitting}
+                            isFirst={index === 0}
+                        />
+                    ))}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4 pt-4 border-t">
+                    <button type="button" onClick={handleAddTask} disabled={isSubmitting} className="w-full sm:w-auto flex-grow justify-center items-center py-3 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50">
+                        添加另一个任务
+                    </button>
+                    <button type="submit" disabled={isSubmitting || !canSubmit} className="w-full sm:w-auto flex-grow justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-colors duration-200">
+                        {isSubmitting ? <SpinnerIcon className="animate-spin h-5 w-5 mr-3" /> : <UploadIcon className="h-5 w-5 mr-2"/>}
+                        {isSubmitting ? submissionStatus : `提交 ${batchTasks.length} 个任务`}
+                    </button>
+                </div>
+                {globalError && <p className="text-sm text-red-600 text-center">{globalError}</p>}
+                {submissionStatus && !isSubmitting && <p className="text-sm text-green-600 text-center">{submissionStatus}</p>}
             </form>
         </div>
     );
 };
+
+const BatchTaskRow: React.FC<{
+    task: BatchTask,
+    onUpdate: (taskId: string, newValues: Partial<BatchTask>) => void,
+    onFileChange: (taskId: string, fileType: 'source' | 'material', file: File | null) => void,
+    onRemove: (taskId: string) => void,
+    isSubmitting: boolean,
+    isFirst: boolean,
+}> = ({ task, onUpdate, onFileChange, onRemove, isSubmitting, isFirst }) => {
+    const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(isFirst);
+
+    return (
+        <div className="p-4 border border-gray-200 rounded-lg bg-gray-50/50">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="font-semibold text-gray-700">任务 #{task.id.substring(task.id.length - 4)}</h3>
+                <button type="button" onClick={() => onRemove(task.id)} disabled={isSubmitting} title="删除此任务" className="p-1 text-gray-400 hover:text-red-600 rounded-full hover:bg-red-100 disabled:opacity-50">
+                    <TrashIcon className="h-5 w-5"/>
+                </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <FileProcessor id={`source-${task.id}`} label="源视频" fileState={task.source} onFileChange={(f) => onFileChange(task.id, 'source', f)} isSubmitting={isSubmitting}/>
+                <FileProcessor id={`material-${task.id}`} label="素材视频" fileState={task.material} onFileChange={(f) => onFileChange(task.id, 'material', f)} isSubmitting={isSubmitting}/>
+            </div>
+            
+            <div className="border-t border-gray-200 pt-4 mt-6">
+                <button type="button" onClick={() => setAdvancedOptionsOpen(!advancedOptionsOpen)} className="flex justify-between items-center w-full text-left text-sm font-medium text-gray-700 hover:text-gray-900 focus:outline-none">
+                    <span>高级处理选项</span>
+                    <ChevronDownIcon className={`h-5 w-5 transform transition-transform text-gray-500 ${advancedOptionsOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {advancedOptionsOpen && (
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label htmlFor={`min_duration-${task.id}`} className="block text-sm font-medium text-gray-700">最小持续时间 (秒)</label>
+                            <input type="number" name="min_duration" id={`min_duration-${task.id}`} value={task.min_duration} onChange={e => onUpdate(task.id, { min_duration: parseInt(e.target.value) })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
+                        </div>
+                        <div>
+                            <label htmlFor={`max_duration-${task.id}`} className="block text-sm font-medium text-gray-700">最大持续时间 (秒)</label>
+                            <input type="number" name="max_duration" id={`max_duration-${task.id}`} value={task.max_duration} onChange={e => onUpdate(task.id, { max_duration: parseInt(e.target.value) })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
+                        </div>
+                        <div>
+                            <label htmlFor={`slowdown_factor-${task.id}`} className="block text-sm font-medium text-gray-700">减速因子 (可选)</label>
+                            <input type="number" step="0.1" name="slowdown_factor" id={`slowdown_factor-${task.id}`} value={task.slowdown_factor ?? ''} onChange={e => onUpdate(task.id, { slowdown_factor: e.target.value ? parseFloat(e.target.value) : null })} disabled={isSubmitting} className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" />
+                        </div>
+                        <div>
+                            <label htmlFor={`effect-${task.id}`} className="block text-sm font-medium text-gray-700">效果</label>
+                            <select id={`effect-${task.id}`} name="effect" value={task.effect} onChange={e => onUpdate(task.id, { effect: e.target.value })} disabled={isSubmitting} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                                <option value="vflip">垂直翻转</option>
+                                <option value="hflip">水平翻转</option>
+                                <option value="grayscale">灰度</option>
+                                <option value="rotate_90">旋转90度</option>
+                            </select>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const FileProcessor: React.FC<{
+    id: string;
+    label: string;
+    fileState: FileState;
+    onFileChange: (file: File | null) => void;
+    isSubmitting: boolean;
+}> = ({ id, label, fileState, onFileChange, isSubmitting }) => {
+    const { file, status, progress, error } = fileState;
+
+    const StatusDisplay = () => {
+        switch(status) {
+            case 'hashing':
+            case 'checking':
+            case 'uploading':
+                const statusText = {hashing: '正在计算哈希...', checking: '正在校验文件...', uploading: '正在上传...'}[status];
+                return (
+                    <div className="w-full text-center">
+                        <SpinnerIcon className="mx-auto h-10 w-10 text-indigo-500 animate-spin"/>
+                        <p className="mt-2 text-sm text-gray-800 font-medium">{statusText}</p>
+                        {(status === 'hashing' || status === 'uploading') && <ProgressBar percentage={progress} />}
+                    </div>
+                );
+            case 'server_exists':
+                return (
+                     <div className="text-center">
+                        <CheckCircleIcon className="mx-auto h-10 w-10 text-green-500"/>
+                        <p className="mt-2 text-sm text-gray-800 font-medium truncate max-w-xs" title={file!.name}>{file!.name}</p>
+                        <p className="text-xs text-green-600 font-semibold">秒传就绪 (文件已存在)</p>
+                    </div>
+                );
+            case 'needs_upload':
+            case 'uploaded':
+                 return (
+                     <div className="text-center">
+                        <CheckCircleIcon className="mx-auto h-10 w-10 text-blue-500"/>
+                        <p className="mt-2 text-sm text-gray-800 font-medium truncate max-w-xs" title={file!.name}>{file!.name}</p>
+                        <p className="text-xs text-blue-600 font-semibold">{status === 'uploaded' ? '上传完成' : '待上传'}</p>
+                    </div>
+                );
+            case 'error':
+                 return (
+                     <div className="text-center">
+                        <XCircleIcon className="mx-auto h-10 w-10 text-red-500"/>
+                        <p className="mt-2 text-sm text-red-700 font-medium truncate max-w-xs" title={error!}>{error}</p>
+                    </div>
+                 );
+            default: // 'waiting'
+                return (
+                    <div className="space-y-1 text-center">
+                        <VideoIcon className="mx-auto h-12 w-12 text-gray-400"/>
+                        <div className="flex text-sm text-gray-600">
+                            <label htmlFor={id} className="relative cursor-pointer bg-transparent rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none">
+                            <span>点击上传</span>
+                            <input id={id} name={id} type="file" accept="video/*" className="sr-only" onChange={e => onFileChange(e.target.files?.[0] || null)} disabled={isSubmitting}/>
+                            </label>
+                            <p className="pl-1">或拖拽文件</p>
+                        </div>
+                        <p className="text-xs text-gray-500">支持 MP4, MOV 等</p>
+                    </div>
+                );
+        }
+    };
+
+    return (
+        <div>
+            <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
+            <div className="mt-1 relative flex justify-center items-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md transition-colors duration-200 ease-in-out hover:border-indigo-400 bg-white min-h-[160px]">
+                <StatusDisplay />
+                {file && !isSubmitting && (
+                    <button type="button" onClick={() => onFileChange(null)} className="absolute top-2 right-2 p-1 rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <XIcon className="h-4 w-4"/>
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+}
 
 const TaskListSection: React.FC<{ 
     tasks: TaskDetails[]; 
@@ -458,6 +637,12 @@ const TaskListSection: React.FC<{
 };
 
 
+// FIX: Added missing MainPageProps interface definition.
+interface MainPageProps {
+  token: string;
+  onLogout: () => void;
+}
+
 const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
   const [tasks, setTasks] = useState<TaskDetails[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -504,7 +689,7 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
     return () => clearInterval(intervalId);
   }, [tasks, refreshSpecificTask]);
 
-  const handleTaskCreated = () => {
+  const handleBatchSubmitted = () => {
       fetchAllTasks();
   };
 
@@ -526,7 +711,7 @@ const MainPage: React.FC<MainPageProps> = ({ token, onLogout }) => {
         </div>
       </header>
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-        <UploadSection token={token} onTaskCreated={handleTaskCreated} />
+        <UploadSection token={token} onBatchSubmitted={handleBatchSubmitted} />
         {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl relative my-6" role="alert">{error}</div>}
         <TaskListSection tasks={tasks} token={token} refreshTask={refreshSpecificTask} onTaskDeleted={handleTaskDeleted} />
       </main>
