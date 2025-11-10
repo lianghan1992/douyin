@@ -154,7 +154,7 @@ export const api = {
 
   getTasks: async (token: string): Promise<TaskDetails[]> => {
     try {
-      const response = await fetch('/tasks/?size=10000', {
+      const response = await fetch('/tasks/?limit=10000', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
